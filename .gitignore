@@ -1,0 +1,61 @@
+# AWS credentials and sensitive files
+.aws/
+*.pem
+*.key
+
+# Lambda deployment packages
+lambda-package.zip
+submission-lambda-package.zip
+lambda-build/
+
+# Environment specific files
+EVALUATION_ENDPOINT.txt
+SUBMISSION_ENDPOINT.txt
+cluster-endpoint.txt
+cluster-token.txt
+student-id.txt
+eval-token-*.txt
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# CloudFormation generated files
+student-deploy-page.html
+manage-students.sh
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+/var/log/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# Node.js (if any)
+node_modules/
+npm-debug.log*
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

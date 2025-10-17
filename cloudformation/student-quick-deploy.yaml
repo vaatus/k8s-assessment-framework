@@ -1,0 +1,576 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Kubernetes Assessment Framework - Student Environment (Quick Deploy)'
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "🎓 Student Information"
+        Parameters:
+          - NeptunCode
+          - TaskSelection
+      - Label:
+          default: "🔧 Environment Configuration (Pre-configured)"
+        Parameters:
+          - InstanceType
+          - KeyPairName
+    ParameterLabels:
+      NeptunCode:
+        default: "Enter your Neptun Code (6 characters)"
+      TaskSelection:
+        default: "Select your assigned task"
+      InstanceType:
+        default: "Instance Type"
+      KeyPairName:
+        default: "SSH Key Pair"
+
+Parameters:
+  NeptunCode:
+    Type: String
+    Description: 'Your 6-character Neptun Code (e.g., ABC123)'
+    MinLength: 6
+    MaxLength: 6
+    AllowedPattern: '[A-Za-z0-9]{6}'
+    ConstraintDescription: 'Must be exactly 6 alphanumeric characters'
+
+  TaskSelection:
+    Type: String
+    Description: 'Select your assigned task'
+    Default: 'task-01'
+    AllowedValues:
+      - task-01
+      - task-02
+      - task-03
+    ConstraintDescription: 'Choose your assigned task'
+
+  InstanceType:
+    Type: String
+    Default: 't3.medium'
+    AllowedValues:
+      - t3.small
+      - t3.medium
+      - t3.large
+    Description: 'EC2 instance type for your k3s cluster'
+
+  KeyPairName:
+    Type: String
+    Default: 'k8s-assessment-keypair'
+    Description: 'SSH key pair for accessing your environment'
+
+  # Hidden parameters (pre-configured by instructor)
+  EvaluationEndpoint:
+    Type: String
+    Default: 'https://blnvddxlftexeu5zj6svifkfuq0kwwnp.lambda-url.us-east-1.on.aws/'
+    Description: 'Evaluation endpoint (pre-configured)'
+
+  SubmissionEndpoint:
+    Type: String
+    Default: 'https://ejczd2msua2p2jcargv2f6djxu0nxigv.lambda-url.us-east-1.on.aws/'
+    Description: 'Submission endpoint (pre-configured)'
+
+Mappings:
+  TaskConfiguration:
+    task-01:
+      Description: 'Deploy NGINX Web Application'
+      Requirements: 'Create a scalable NGINX deployment with resource limits'
+      Namespace: 'task-01'
+    task-02:
+      Description: 'Service and Ingress Configuration'
+      Requirements: 'Expose applications with services and ingress'
+      Namespace: 'task-02'
+    task-03:
+      Description: 'ConfigMaps and Secrets'
+      Requirements: 'Manage application configuration and secrets'
+      Namespace: 'task-03'
+
+Resources:
+  # Security Group for k3s cluster
+  StudentSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'Security group for ${NeptunCode} k3s cluster'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: 'SSH access'
+        - IpProtocol: tcp
+          FromPort: 6443
+          ToPort: 6443
+          CidrIp: 0.0.0.0/0
+          Description: 'Kubernetes API server'
+        - IpProtocol: tcp
+          FromPort: 30000
+          ToPort: 32767
+          CidrIp: 0.0.0.0/0
+          Description: 'NodePort services'
+      Tags:
+        - Key: Name
+          Value: !Sub '${NeptunCode}-k3s-sg'
+        - Key: NeptunCode
+          Value: !Ref NeptunCode
+        - Key: Task
+          Value: !Ref TaskSelection
+
+  # IAM Role for EC2 instance
+  StudentInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-09'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: NeptunCode
+          Value: !Ref NeptunCode
+
+  # Instance Profile
+  StudentInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref StudentInstanceRole
+
+  # EC2 Instance for k3s
+  StudentK3sInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0e86e20dae90224e1  # Ubuntu 22.04 LTS (us-east-1)
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPairName
+      SecurityGroupIds:
+        - !Ref StudentSecurityGroup
+      IamInstanceProfile: !Ref StudentInstanceProfile
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -e
+
+          # Logging
+          exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+          echo "Starting k3s setup for student: ${NeptunCode}"
+
+          # Update system
+          apt-get update -y
+          apt-get install -y curl wget jq unzip
+
+          # Install AWS CLI v2
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          ./aws/install
+          rm -rf aws awscliv2.zip
+
+          # Get external IP
+          EXTERNAL_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+          echo "External IP: $EXTERNAL_IP"
+
+          # Install k3s
+          echo "Installing k3s..."
+          curl -sfL https://get.k3s.io | sh -
+
+          # Wait for k3s to be ready
+          echo "Waiting for k3s to be ready..."
+          systemctl enable k3s
+          systemctl start k3s
+          sleep 30
+
+          # Set up kubectl access
+          mkdir -p /home/ubuntu/.kube
+          cp /etc/rancher/k3s/k3s.yaml /home/ubuntu/.kube/config
+          chown ubuntu:ubuntu /home/ubuntu/.kube/config
+          chmod 600 /home/ubuntu/.kube/config
+
+          # Update kubeconfig with external IP
+          sed -i "s/127.0.0.1/$EXTERNAL_IP/g" /home/ubuntu/.kube/config
+
+          # Verify k3s is running
+          /usr/local/bin/k3s kubectl get nodes
+
+          # Install Kyverno
+          echo "Installing Kyverno..."
+          /usr/local/bin/k3s kubectl create -f https://github.com/kyverno/kyverno/releases/download/v1.10.0/install.yaml
+
+          # Wait for Kyverno to be ready
+          echo "Waiting for Kyverno to be ready..."
+          /usr/local/bin/k3s kubectl wait --for=condition=ready pod -l app.kubernetes.io/part-of=kyverno -n kyverno --timeout=300s
+
+          # Create task namespace
+          echo "Creating namespace for ${TaskSelection}..."
+          /usr/local/bin/k3s kubectl create namespace ${TaskSelection}
+
+          # Create service account for evaluation
+          echo "Creating service account..."
+          /usr/local/bin/k3s kubectl create serviceaccount evaluator -n kube-system --dry-run=client -o yaml | /usr/local/bin/k3s kubectl apply -f -
+          /usr/local/bin/k3s kubectl create clusterrolebinding evaluator-binding --clusterrole=cluster-admin --serviceaccount=kube-system:evaluator --dry-run=client -o yaml | /usr/local/bin/k3s kubectl apply -f -
+
+          # Create service account token
+          /usr/local/bin/k3s kubectl apply -f - << 'EOF'
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: evaluator-token
+            namespace: kube-system
+            annotations:
+              kubernetes.io/service-account.name: evaluator
+          type: kubernetes.io/service-account-token
+          EOF
+
+          # Wait for token to be ready
+          echo "Waiting for service account token..."
+          for i in {1..30}; do
+            TOKEN=$(/usr/local/bin/k3s kubectl get secret evaluator-token -n kube-system -o jsonpath='{.data.token}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+            if [ -n "$TOKEN" ]; then
+              break
+            fi
+            echo "Waiting for token... (attempt $i/30)"
+            sleep 2
+          done
+
+          if [ -z "$TOKEN" ]; then
+            echo "Failed to get service account token, creating temporary one..."
+            TOKEN=$(/usr/local/bin/k3s kubectl create token evaluator -n kube-system --duration=8760h)
+          fi
+
+          echo "Token created successfully"
+
+          # Create student workspace
+          echo "Setting up student workspace..."
+          mkdir -p /home/ubuntu/k8s-workspace
+          cd /home/ubuntu/k8s-workspace
+
+          # Save configuration
+          echo "${EvaluationEndpoint}" > EVALUATION_ENDPOINT.txt
+          echo "${SubmissionEndpoint}" > SUBMISSION_ENDPOINT.txt
+          echo "${NeptunCode}" > student-id.txt
+          echo "https://$EXTERNAL_IP:6443" > cluster-endpoint.txt
+          echo "$TOKEN" > cluster-token.txt
+
+          # Create student tools directory
+          mkdir -p student-tools
+
+          # Create evaluation request script
+          cat > student-tools/request-evaluation.sh << 'EVAL_SCRIPT'
+          #!/bin/bash
+          set -e
+
+          echo "=== Kubernetes Task Evaluation Request ==="
+
+          # Configuration files
+          EVALUATION_ENDPOINT_FILE="../EVALUATION_ENDPOINT.txt"
+          STUDENT_ID_FILE="../student-id.txt"
+
+          # Check for required files
+          if [ ! -f "$EVALUATION_ENDPOINT_FILE" ]; then
+              echo "ERROR: EVALUATION_ENDPOINT.txt not found"
+              exit 1
+          fi
+
+          if [ ! -f "$STUDENT_ID_FILE" ]; then
+              echo "ERROR: student-id.txt not found"
+              exit 1
+          fi
+
+          EVALUATION_ENDPOINT=$(cat $EVALUATION_ENDPOINT_FILE)
+          STUDENT_ID=$(cat $STUDENT_ID_FILE | tr -d '\n\r ')
+
+          # Task configuration
+          TASK_ID=${!1:-"${TaskSelection}"}
+          NAMESPACE="${!TASK_ID}"
+
+          if [ -z "$1" ]; then
+              echo "Usage: $0 <task-id>"
+              echo "Example: $0 ${TaskSelection}"
+              echo "Your assigned task: ${TaskSelection}"
+              TASK_ID="${TaskSelection}"
+              NAMESPACE="${TaskSelection}"
+          fi
+
+          echo "Student ID: ${!STUDENT_ID}"
+          echo "Task ID: ${!TASK_ID}"
+          echo "Namespace: ${!NAMESPACE}"
+
+          # Get cluster credentials
+          echo "Getting cluster information..."
+          if [ -f "../cluster-endpoint.txt" ] && [ -f "../cluster-token.txt" ]; then
+              echo "Using saved cluster credentials..."
+              CLUSTER_ENDPOINT=$(cat ../cluster-endpoint.txt | tr -d '\n\r ')
+              CLUSTER_TOKEN=$(cat ../cluster-token.txt | tr -d '\n\r ')
+          else
+              echo "ERROR: Cluster credentials not found"
+              exit 1
+          fi
+
+          echo "Cluster Endpoint: ${!CLUSTER_ENDPOINT}"
+
+          # Create evaluation request payload
+          REQUEST_PAYLOAD=$(cat << EOF
+          {
+              "student_id": "${!STUDENT_ID}",
+              "task_id": "${!TASK_ID}",
+              "cluster_endpoint": "${!CLUSTER_ENDPOINT}",
+              "cluster_token": "${!CLUSTER_TOKEN}"
+          }
+          EOF
+          )
+
+          echo ""
+          echo "Requesting evaluation..."
+
+          # Make evaluation request
+          RESPONSE=$(curl -s -X POST \
+              -H "Content-Type: application/json" \
+              -d "$REQUEST_PAYLOAD" \
+              "$EVALUATION_ENDPOINT")
+
+          echo ""
+          echo "=== EVALUATION RESULTS ==="
+          echo "$RESPONSE" | jq '.'
+
+          # Extract and save evaluation token
+          EVAL_TOKEN=$(echo "$RESPONSE" | jq -r '.eval_token // empty')
+          if [ -n "$EVAL_TOKEN" ] && [ "$EVAL_TOKEN" != "null" ]; then
+              echo "$EVAL_TOKEN" > "eval-token-${!TASK_ID}.txt"
+              echo ""
+              echo "Evaluation token saved to: eval-token-${!TASK_ID}.txt"
+              echo "Use this token to submit your final results when satisfied"
+          fi
+
+          echo ""
+          echo "=== EVALUATION COMPLETE ==="
+          EVAL_SCRIPT
+
+          # Create submission script
+          cat > student-tools/submit-final.sh << 'SUBMIT_SCRIPT'
+          #!/bin/bash
+          set -e
+
+          echo "=== Final Task Submission ==="
+
+          # Configuration files
+          SUBMISSION_ENDPOINT_FILE="../SUBMISSION_ENDPOINT.txt"
+          STUDENT_ID_FILE="../student-id.txt"
+
+          # Check for required files
+          if [ ! -f "$SUBMISSION_ENDPOINT_FILE" ]; then
+              echo "ERROR: SUBMISSION_ENDPOINT.txt not found"
+              exit 1
+          fi
+
+          if [ ! -f "$STUDENT_ID_FILE" ]; then
+              echo "ERROR: student-id.txt not found"
+              exit 1
+          fi
+
+          SUBMISSION_ENDPOINT=$(cat $SUBMISSION_ENDPOINT_FILE)
+          STUDENT_ID=$(cat $STUDENT_ID_FILE | tr -d '\n\r ')
+
+          # Task configuration
+          TASK_ID=${!1:-"${TaskSelection}"}
+          EVAL_TOKEN_FILE="eval-token-${!TASK_ID}.txt"
+
+          if [ -z "$1" ]; then
+              echo "Usage: $0 <task-id>"
+              echo "Example: $0 ${TaskSelection}"
+              echo "Your assigned task: ${TaskSelection}"
+              TASK_ID="${TaskSelection}"
+              EVAL_TOKEN_FILE="eval-token-${TaskSelection}.txt"
+          fi
+
+          if [ ! -f "$EVAL_TOKEN_FILE" ]; then
+              echo "ERROR: ${!EVAL_TOKEN_FILE} not found"
+              echo "Please run request-evaluation.sh first to get an evaluation token"
+              exit 1
+          fi
+
+          EVAL_TOKEN=$(cat $EVAL_TOKEN_FILE | tr -d '\n\r ')
+
+          echo "Student ID: ${!STUDENT_ID}"
+          echo "Task ID: ${!TASK_ID}"
+          echo "Evaluation Token: ${!EVAL_TOKEN}"
+
+          # Confirm submission
+          echo ""
+          echo "WARNING: This will submit your final results for grading."
+          echo "Make sure you have:"
+          echo "1. Completed the task requirements"
+          echo "2. Run request-evaluation.sh and reviewed the results"
+          echo "3. Made any necessary corrections"
+          echo ""
+          read -p "Are you sure you want to submit? (yes/no): " CONFIRM
+
+          if [ "$CONFIRM" != "yes" ]; then
+              echo "Submission cancelled"
+              exit 0
+          fi
+
+          # Create submission payload
+          SUBMISSION_PAYLOAD=$(cat << EOF
+          {
+              "student_id": "${!STUDENT_ID}",
+              "task_id": "${!TASK_ID}",
+              "eval_token": "${!EVAL_TOKEN}"
+          }
+          EOF
+          )
+
+          echo ""
+          echo "Submitting final results..."
+
+          # Make submission request
+          RESPONSE=$(curl -s -X POST \
+              -H "Content-Type: application/json" \
+              -d "$SUBMISSION_PAYLOAD" \
+              "$SUBMISSION_ENDPOINT")
+
+          echo ""
+          echo "=== SUBMISSION RESULTS ==="
+          echo "$RESPONSE" | jq '.'
+
+          # Check if submission was successful
+          STATUS=$(echo "$RESPONSE" | jq -r '.message // .error')
+          if echo "$RESPONSE" | jq -e '.message' > /dev/null; then
+              echo ""
+              echo "✅ SUBMISSION SUCCESSFUL!"
+              rm -f "$EVAL_TOKEN_FILE"
+              echo "Evaluation token cleaned up"
+          else
+              echo ""
+              echo "❌ SUBMISSION FAILED!"
+          fi
+
+          echo ""
+          echo "=== SUBMISSION COMPLETE ==="
+          SUBMIT_SCRIPT
+
+          # Make scripts executable
+          chmod +x student-tools/*.sh
+
+          # Create task directory with README
+          mkdir -p tasks/${TaskSelection}
+          cat > tasks/${TaskSelection}/README.md << TASK_README
+          # ${TaskSelection}: ${FindInMap [TaskConfiguration, !Ref TaskSelection, Description]}
+
+          ## Objective
+          ${FindInMap [TaskConfiguration, !Ref TaskSelection, Requirements]}
+
+          ## Your Assignment
+          Complete this task in the \`${TaskSelection}\` namespace.
+
+          ## Getting Started
+
+          1. The namespace \`${TaskSelection}\` is already created for you
+          2. Create your Kubernetes manifests and deploy them:
+             \`\`\`bash
+             kubectl apply -f your-solution.yaml
+             \`\`\`
+
+          3. Verify your deployment:
+             \`\`\`bash
+             kubectl get all -n ${TaskSelection}
+             \`\`\`
+
+          4. When ready, request evaluation:
+             \`\`\`bash
+             cd student-tools
+             ./request-evaluation.sh ${TaskSelection}
+             \`\`\`
+
+          5. If satisfied with results, submit:
+             \`\`\`bash
+             ./submit-final.sh ${TaskSelection}
+             \`\`\`
+
+          ## Important Notes
+          - You can run evaluation multiple times
+          - Only submit when you're confident in your solution
+          - Your environment will be automatically cleaned up after 4 hours
+          - Your Neptun Code: **${NeptunCode}**
+          TASK_README
+
+          # Change ownership to ubuntu
+          chown -R ubuntu:ubuntu /home/ubuntu/k8s-workspace
+
+          # Create welcome message
+          cat > /home/ubuntu/welcome.txt << WELCOME
+          ============================================
+          🎓 Welcome ${NeptunCode}!
+          ============================================
+
+          Your Kubernetes environment is ready!
+
+          📁 Workspace: /home/ubuntu/k8s-workspace
+          📋 Your Task: ${TaskSelection}
+          🔍 Task Description: ${FindInMap [TaskConfiguration, !Ref TaskSelection, Description]}
+
+          📚 Quick Start:
+          1. cd k8s-workspace
+          2. cat tasks/${TaskSelection}/README.md
+          3. Create your solution
+          4. ./student-tools/request-evaluation.sh ${TaskSelection}
+          5. ./student-tools/submit-final.sh ${TaskSelection}
+
+          💡 Tips:
+          - Check cluster status: kubectl get nodes
+          - View your namespace: kubectl get all -n ${TaskSelection}
+          - Need help? Read the task README file
+
+          Good luck with your assessment! 🚀
+          ============================================
+          WELCOME
+
+          chown ubuntu:ubuntu /home/ubuntu/welcome.txt
+
+          echo "Student environment setup complete for ${NeptunCode}!"
+          echo "Task: ${TaskSelection}"
+          echo "External IP: $EXTERNAL_IP"
+
+      Tags:
+        - Key: Name
+          Value: !Sub '${NeptunCode}-k3s-${TaskSelection}'
+        - Key: NeptunCode
+          Value: !Ref NeptunCode
+        - Key: Task
+          Value: !Ref TaskSelection
+        - Key: Purpose
+          Value: 'k8s-assessment'
+
+Outputs:
+  StudentInfo:
+    Description: 'Student Information'
+    Value: !Sub |
+      🎓 Student: ${NeptunCode}
+      📋 Task: ${TaskSelection} - ${TaskConfiguration.${TaskSelection}.Description}
+      🌐 Instance IP: ${StudentK3sInstance.PublicIp}
+      🔑 SSH Command: ssh -i ${KeyPairName}.pem ubuntu@${StudentK3sInstance.PublicIp}
+
+  ConnectionDetails:
+    Description: 'SSH Connection Details'
+    Value: !Sub 'ssh -i ${KeyPairName}.pem ubuntu@${StudentK3sInstance.PublicIp}'
+
+  PublicIP:
+    Description: 'Public IP address of your k3s cluster'
+    Value: !GetAtt StudentK3sInstance.PublicIp
+
+  KubernetesEndpoint:
+    Description: 'Kubernetes API endpoint'
+    Value: !Sub 'https://${StudentK3sInstance.PublicIp}:6443'
+
+  TaskAssignment:
+    Description: 'Your assigned task'
+    Value: !Sub '${TaskSelection}: ${TaskConfiguration.${TaskSelection}.Description}'
+
+  WorkspaceInstructions:
+    Description: 'Getting Started'
+    Value: !Sub |
+      1. SSH: ssh -i ${KeyPairName}.pem ubuntu@${StudentK3sInstance.PublicIp}
+      2. Navigate: cd k8s-workspace
+      3. Read task: cat tasks/${TaskSelection}/README.md
+      4. Create solution and deploy it
+      5. Evaluate: ./student-tools/request-evaluation.sh ${TaskSelection}
+      6. Submit: ./student-tools/submit-final.sh ${TaskSelection}
