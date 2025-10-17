@@ -41,8 +41,12 @@ echo "Namespace: ${NAMESPACE}"
 echo "Getting cluster information..."
 
 # Check if cluster credentials are already saved
-if [ -f "cluster-endpoint.txt" ] && [ -f "cluster-token.txt" ]; then
+if [ -f "../cluster-endpoint.txt" ] && [ -f "../cluster-token.txt" ]; then
     echo "Using saved cluster credentials..."
+    CLUSTER_ENDPOINT=$(cat ../cluster-endpoint.txt | tr -d '\n\r ')
+    CLUSTER_TOKEN=$(cat ../cluster-token.txt | tr -d '\n\r ')
+elif [ -f "cluster-endpoint.txt" ] && [ -f "cluster-token.txt" ]; then
+    echo "Using saved cluster credentials from current directory..."
     CLUSTER_ENDPOINT=$(cat cluster-endpoint.txt | tr -d '\n\r ')
     CLUSTER_TOKEN=$(cat cluster-token.txt | tr -d '\n\r ')
 else
