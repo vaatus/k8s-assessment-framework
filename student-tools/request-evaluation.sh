@@ -39,8 +39,25 @@ echo "Namespace: ${NAMESPACE}"
 
 # Get cluster endpoint and token
 echo "Getting cluster information..."
-CLUSTER_ENDPOINT=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
-CLUSTER_TOKEN=$(kubectl get secret -n kube-system $(kubectl get serviceaccount default -n kube-system -o jsonpath='{.secrets[0].name}') -o jsonpath='{.data.token}' | base64 -d 2>/dev/null || kubectl create token default -n kube-system --duration=3600s)
+
+# Check if cluster credentials are already saved
+if [ -f "cluster-endpoint.txt" ] && [ -f "cluster-token.txt" ]; then
+    echo "Using saved cluster credentials..."
+    CLUSTER_ENDPOINT=$(cat cluster-endpoint.txt | tr -d '\n\r ')
+    CLUSTER_TOKEN=$(cat cluster-token.txt | tr -d '\n\r ')
+else
+    echo "Getting cluster credentials from kubectl..."
+    CLUSTER_ENDPOINT=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
+
+    # Try to get token from evaluator service account first
+    CLUSTER_TOKEN=$(kubectl get secret evaluator-token -n kube-system -o jsonpath='{.data.token}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+
+    # Fallback to creating a temporary token
+    if [ -z "$CLUSTER_TOKEN" ]; then
+        echo "Creating temporary evaluation token..."
+        CLUSTER_TOKEN=$(kubectl create token evaluator -n kube-system --duration=3600s 2>/dev/null || kubectl create token default -n kube-system --duration=3600s)
+    fi
+fi
 
 if [ -z "$CLUSTER_ENDPOINT" ] || [ -z "$CLUSTER_TOKEN" ]; then
     echo "ERROR: Could not retrieve cluster credentials"

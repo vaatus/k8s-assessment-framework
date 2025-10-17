@@ -72,18 +72,22 @@ cat SUBMISSION_ENDPOINT.txt
 
 ### Phase 2: Student Account Setup
 
-#### 2.1 Create EKS Cluster
+#### 2.1 Launch EC2 Instance and Install k3s
 ```bash
-# Create EKS cluster (adjust region as needed)
-eksctl create cluster \
-  --name k8s-assessment \
-  --region us-east-1 \
-  --nodegroup-name standard-workers \
-  --node-type t3.medium \
-  --nodes 2 \
-  --nodes-min 1 \
-  --nodes-max 3 \
-  --managed
+# Launch EC2 instance (t3.medium recommended)
+# Connect via SSH and run:
+
+# Setup k3s cluster
+chmod +x student-tools/setup-k3s-cluster.sh
+./student-tools/setup-k3s-cluster.sh
+
+# Configure security group
+chmod +x student-tools/configure-ec2-security.sh
+./student-tools/configure-ec2-security.sh
+
+# Create service account for evaluation
+chmod +x student-tools/create-service-account.sh
+./student-tools/create-service-account.sh
 ```
 
 #### 2.2 Install Kyverno
