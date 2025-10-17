@@ -1,0 +1,16 @@
+# Assert no errors in events
+apiVersion: v1
+kind: Event
+metadata:
+  namespace: task-01
+type: Warning
+---
+# Ensure no failed pods
+apiVersion: v1
+kind: Pod
+metadata:
+  namespace: task-01
+  labels:
+    app: nginx-web
+status:
+  phase: Failed
