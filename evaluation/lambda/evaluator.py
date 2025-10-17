@@ -1,9 +1,11 @@
 import json
 import boto3
-import subprocess
 import os
 from datetime import datetime
 import uuid
+import base64
+import subprocess
+import tempfile
 
 s3 = boto3.client('s3')
 BUCKET_NAME = 'k8s-eval-results'
@@ -11,33 +13,60 @@ BUCKET_NAME = 'k8s-eval-results'
 def lambda_handler(event, context):
     """
     Remote evaluation Lambda triggered by student
-    Receives: student_id, task_id, kubeconfig_url
+    Receives: student_id, task_id, cluster_endpoint, cluster_token
     Returns: evaluation_token
     """
     
     try:
-        # Parse request
-        body = json.loads(event['body']) if 'body' in event else event
-        student_id = body['student_id']
-        task_id = body['task_id']
-        cluster_endpoint = body['cluster_endpoint']
-        cluster_token = body['cluster_token']
+        # Parse request - handle both direct invoke and API Gateway
+        if 'body' in event:
+            if isinstance(event['body'], str):
+                body = json.loads(event['body'])
+            else:
+                body = event['body']
+        else:
+            body = event
+            
+        student_id = body.get('student_id')
+        task_id = body.get('task_id')
+        cluster_endpoint = body.get('cluster_endpoint')
+        cluster_token = body.get('cluster_token')
+        
+        # Validate inputs
+        if not all([student_id, task_id, cluster_endpoint, cluster_token]):
+            return {
+                'statusCode': 400,
+                'body': json.dumps({
+                    'error': 'Missing required parameters: student_id, task_id, cluster_endpoint, cluster_token'
+                })
+            }
         
         # Generate unique evaluation token
         eval_token = str(uuid.uuid4())
         timestamp = datetime.utcnow().isoformat()
         
+        print(f"Starting evaluation for student: {student_id}, task: {task_id}")
+        
         # Create kubeconfig for remote cluster access
-        kubeconfig = create_kubeconfig(cluster_endpoint, cluster_token)
+        kubeconfig_path = create_kubeconfig(cluster_endpoint, cluster_token)
         
-        # Run KUTTL tests remotely
-        test_results = run_kuttl_tests(task_id, kubeconfig)
+        # Run basic connectivity test
+        connectivity_test = test_cluster_connection(kubeconfig_path, task_id)
         
-        # Validate with Kyverno policies
-        policy_results = validate_policies(task_id, kubeconfig)
+        if not connectivity_test['success']:
+            return {
+                'statusCode': 400,
+                'body': json.dumps({
+                    'error': 'Cannot connect to student cluster',
+                    'details': connectivity_test['error']
+                })
+            }
+        
+        # Evaluate the task
+        evaluation_results = evaluate_task(task_id, kubeconfig_path)
         
         # Calculate score
-        score = calculate_score(test_results, policy_results)
+        score = calculate_score(evaluation_results)
         
         # Generate report
         report = {
@@ -46,8 +75,8 @@ def lambda_handler(event, context):
             'task_id': task_id,
             'timestamp': timestamp,
             'score': score,
-            'test_results': test_results,
-            'policy_results': policy_results,
+            'max_score': 100,
+            'results': evaluation_results,
             'status': 'completed'
         }
         
@@ -60,124 +89,183 @@ def lambda_handler(event, context):
             ContentType='application/json'
         )
         
+        print(f"Evaluation completed. Score: {score}/100")
+        
         return {
             'statusCode': 200,
             'body': json.dumps({
                 'eval_token': eval_token,
                 'score': score,
+                'max_score': 100,
                 'message': 'Evaluation completed. Review results and submit if satisfied.',
-                'results_preview': {
-                    'tests_passed': test_results['passed'],
-                    'tests_failed': test_results['failed'],
-                    'policies_validated': policy_results['compliant']
+                'results_summary': {
+                    'deployment_exists': evaluation_results.get('deployment_exists', False),
+                    'replicas_correct': evaluation_results.get('replicas_correct', False),
+                    'image_correct': evaluation_results.get('image_correct', False),
+                    'resources_set': evaluation_results.get('resources_set', False),
+                    'pods_running': evaluation_results.get('pods_running', False)
                 }
             })
         }
         
     except Exception as e:
+        print(f"Error during evaluation: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
         return {
             'statusCode': 500,
-            'body': json.dumps({'error': str(e)})
+            'body': json.dumps({
+                'error': 'Internal evaluation error',
+                'details': str(e)
+            })
         }
 
 def create_kubeconfig(endpoint, token):
     """Create kubeconfig for remote cluster access"""
-    kubeconfig = {
-        'apiVersion': 'v1',
-        'kind': 'Config',
-        'clusters': [{
-            'name': 'student-cluster',
-            'cluster': {
-                'server': endpoint,
-                'insecure-skip-tls-verify': True
-            }
-        }],
-        'contexts': [{
-            'name': 'evaluation-context',
-            'context': {
-                'cluster': 'student-cluster',
-                'user': 'evaluator'
-            }
-        }],
-        'current-context': 'evaluation-context',
-        'users': [{
-            'name': 'evaluator',
-            'user': {
-                'token': token
-            }
-        }]
-    }
+    
+    kubeconfig_content = f"""apiVersion: v1
+kind: Config
+clusters:
+- name: student-cluster
+  cluster:
+    server: {endpoint}
+    insecure-skip-tls-verify: true
+contexts:
+- name: evaluation-context
+  context:
+    cluster: student-cluster
+    user: evaluator
+    namespace: default
+current-context: evaluation-context
+users:
+- name: evaluator
+  user:
+    token: {token}
+"""
     
     # Write to /tmp (Lambda's writable directory)
     kubeconfig_path = '/tmp/kubeconfig'
     with open(kubeconfig_path, 'w') as f:
-        json.dump(kubeconfig, f)
+        f.write(kubeconfig_content)
     
+    print(f"Kubeconfig created at {kubeconfig_path}")
     return kubeconfig_path
 
-def run_kuttl_tests(task_id, kubeconfig):
-    """Execute KUTTL tests against student cluster"""
-    os.environ['KUBECONFIG'] = kubeconfig
-    
-    # Download test cases from GitHub
-    test_dir = f'/tmp/tests/{task_id}'
-    os.makedirs(test_dir, exist_ok=True)
-    
-    # Clone repository or download specific test files
-    # For simplicity, assume tests are packaged in Lambda layer
-    
+def test_cluster_connection(kubeconfig_path, task_id):
+    """Test connection to student cluster"""
     try:
-        # Run KUTTL
         result = subprocess.run(
-            ['kubectl-kuttl', 'test', '--config', f'{test_dir}/kuttl-test.yaml'],
+            ['kubectl', '--kubeconfig', kubeconfig_path, 'get', 'namespace', f'task-{task_id}'],
             capture_output=True,
             text=True,
-            timeout=300
+            timeout=30
         )
         
-        return {
-            'passed': result.returncode == 0,
-            'failed': result.returncode != 0,
-            'output': result.stdout,
-            'errors': result.stderr
-        }
+        if result.returncode == 0:
+            return {'success': True}
+        else:
+            return {
+                'success': False,
+                'error': f'Namespace task-{task_id} not found or inaccessible'
+            }
+            
     except subprocess.TimeoutExpired:
-        return {
-            'passed': False,
-            'failed': True,
-            'output': '',
-            'errors': 'Test execution timeout'
-        }
+        return {'success': False, 'error': 'Connection timeout'}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
 
-def validate_policies(task_id, kubeconfig):
-    """Validate resources against Kyverno policies"""
-    os.environ['KUBECONFIG'] = kubeconfig
+def evaluate_task(task_id, kubeconfig_path):
+    """Evaluate task based on requirements"""
     
-    # Get all resources in student namespace
-    result = subprocess.run(
-        ['kubectl', 'get', 'all', '-n', f'task-{task_id}', '-o', 'json'],
-        capture_output=True,
-        text=True
-    )
-    
-    if result.returncode != 0:
-        return {'compliant': False, 'violations': ['Failed to fetch resources']}
-    
-    # Apply Kyverno policy checks
-    # This would use kyverno CLI or API
-    return {
-        'compliant': True,
-        'violations': []
+    results = {
+        'deployment_exists': False,
+        'replicas_correct': False,
+        'image_correct': False,
+        'resources_set': False,
+        'labels_correct': False,
+        'pods_running': False,
+        'pod_count_correct': False
     }
+    
+    namespace = f'task-{task_id}'
+    
+    # Check if deployment exists
+    try:
+        cmd = ['kubectl', '--kubeconfig', kubeconfig_path, 'get', 'deployment', 
+               'nginx-web', '-n', namespace, '-o', 'json']
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        if result.returncode == 0:
+            results['deployment_exists'] = True
+            deployment = json.loads(result.stdout)
+            
+            # Check replicas
+            desired_replicas = deployment.get('spec', {}).get('replicas', 0)
+            results['replicas_correct'] = (desired_replicas == 3)
+            
+            # Check image
+            containers = deployment.get('spec', {}).get('template', {}).get('spec', {}).get('containers', [])
+            if containers:
+                image = containers[0].get('image', '')
+                results['image_correct'] = ('nginx:1.25' in image)
+                
+                # Check resources
+                resources = containers[0].get('resources', {})
+                limits = resources.get('limits', {})
+                results['resources_set'] = ('cpu' in limits and 'memory' in limits)
+            
+            # Check labels
+            labels = deployment.get('metadata', {}).get('labels', {})
+            results['labels_correct'] = (labels.get('app') == 'nginx-web')
+            
+    except Exception as e:
+        print(f"Error checking deployment: {e}")
+    
+    # Check if pods are running
+    try:
+        cmd = ['kubectl', '--kubeconfig', kubeconfig_path, 'get', 'pods', 
+               '-n', namespace, '-l', 'app=nginx-web', '-o', 'json']
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        if result.returncode == 0:
+            pods = json.loads(result.stdout)
+            pod_items = pods.get('items', [])
+            
+            results['pod_count_correct'] = (len(pod_items) == 3)
+            
+            # Check if all pods are running
+            running_count = 0
+            for pod in pod_items:
+                phase = pod.get('status', {}).get('phase', '')
+                if phase == 'Running':
+                    running_count += 1
+            
+            results['pods_running'] = (running_count == 3)
+            
+    except Exception as e:
+        print(f"Error checking pods: {e}")
+    
+    return results
 
-def calculate_score(test_results, policy_results):
-    """Calculate final score"""
+def calculate_score(results):
+    """Calculate final score based on evaluation results"""
     score = 0
     
-    if test_results['passed']:
-        score += 70
-    
-    if policy_results['compliant']:
-        score += 30
+    # Scoring rubric
+    if results['deployment_exists']:
+        score += 20
+    if results['replicas_correct']:
+        score += 15
+    if results['image_correct']:
+        score += 15
+    if results['resources_set']:
+        score += 20
+    if results['labels_correct']:
+        score += 10
+    if results['pod_count_correct']:
+        score += 10
+    if results['pods_running']:
+        score += 10
     
     return score
