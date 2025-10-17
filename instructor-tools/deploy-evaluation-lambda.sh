@@ -49,10 +49,15 @@ else
     aws lambda wait function-active --function-name ${FUNCTION_NAME} --region ${REGION}
 fi
 
-# Check if Function URL exists
-FUNCTION_URL_EXISTS=$(aws lambda list-function-url-configs --function-name ${FUNCTION_NAME} --region ${REGION} --query 'FunctionUrlConfigs[0].FunctionUrl' --output text 2>/dev/null || echo "")
+# Get or create Function URL
+echo "Checking for Function URL..."
+FUNCTION_URL=$(aws lambda list-function-url-configs \
+    --function-name ${FUNCTION_NAME} \
+    --region ${REGION} \
+    --query 'FunctionUrlConfigs[0].FunctionUrl' \
+    --output text 2>/dev/null || echo "")
 
-if [ "$FUNCTION_URL_EXISTS" == "None" ] || [ -z "$FUNCTION_URL_EXISTS" ]; then
+if [ "$FUNCTION_URL" == "None" ] || [ -z "$FUNCTION_URL" ] || [ "$FUNCTION_URL" == "null" ]; then
     echo "Creating Function URL..."
     FUNCTION_URL=$(aws lambda create-function-url-config \
       --function-name ${FUNCTION_NAME} \
@@ -60,9 +65,9 @@ if [ "$FUNCTION_URL_EXISTS" == "None" ] || [ -z "$FUNCTION_URL_EXISTS" ]; then
       --region ${REGION} \
       --query 'FunctionUrl' \
       --output text)
+    echo "Function URL created: ${FUNCTION_URL}"
 else
-    FUNCTION_URL=$FUNCTION_URL_EXISTS
-    echo "Function URL already exists"
+    echo "Function URL already exists: ${FUNCTION_URL}"
 fi
 
 echo ""
