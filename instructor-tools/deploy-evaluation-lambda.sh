@@ -25,9 +25,9 @@ echo "Creating deployment package..."
 mkdir -p lambda-build
 cp evaluator.py lambda-build/
 
-# Install PyYAML dependency
+# Install dependencies
 cd lambda-build
-pip3 install PyYAML -t .
+pip3 install PyYAML requests urllib3 -t .
 
 # Create package
 zip -r ../lambda-package.zip .

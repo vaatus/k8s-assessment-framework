@@ -6,6 +6,9 @@ import uuid
 import base64
 import subprocess
 import tempfile
+import requests
+import urllib3
+from urllib3.exceptions import InsecureRequestWarning
 
 s3 = boto3.client('s3')
 BUCKET_NAME = 'k8s-eval-results'
@@ -166,28 +169,32 @@ def test_cluster_connection(kubeconfig_path, task_id):
         server = kubeconfig['clusters'][0]['cluster']['server']
         token = kubeconfig['users'][0]['user']['token']
 
-        # Test API connectivity with curl
-        result = subprocess.run([
-            'curl', '-k', '-s', '--connect-timeout', '10',
-            '-H', f'Authorization: Bearer {token}',
-            f'{server}/api/v1/namespaces/task-{task_id}'
-        ], capture_output=True, text=True, timeout=30)
+        # Test API connectivity with requests
+        # Disable SSL verification for k3s self-signed certs
+        session = requests.Session()
+        session.verify = False
+        urllib3.disable_warnings(InsecureRequestWarning)
 
-        if result.returncode == 0:
-            # Check if response contains namespace info or 404
-            if 'NotFound' in result.stdout:
-                return {
-                    'success': False,
-                    'error': f'Namespace task-{task_id} not found'
-                }
-            elif '"kind":"Namespace"' in result.stdout:
-                return {'success': True}
-            else:
-                return {'success': True}  # API is accessible
+        headers = {'Authorization': f'Bearer {token}'}
+        response = session.get(f'{server}/api/v1/namespaces/task-{task_id}',
+                              headers=headers, timeout=30)
+
+        if response.status_code == 200:
+            return {'success': True}
+        elif response.status_code == 404:
+            return {
+                'success': False,
+                'error': f'Namespace task-{task_id} not found'
+            }
+        elif response.status_code == 401:
+            return {
+                'success': False,
+                'error': 'Authentication failed - invalid token'
+            }
         else:
             return {
                 'success': False,
-                'error': f'Cannot connect to cluster API: {result.stderr}'
+                'error': f'API request failed: {response.status_code} {response.text}'
             }
 
     except subprocess.TimeoutExpired:
@@ -222,17 +229,21 @@ def evaluate_task(task_id, kubeconfig_path):
         print(f"Error reading kubeconfig: {e}")
         return results
 
+    # Set up requests session
+    session = requests.Session()
+    session.verify = False
+    urllib3.disable_warnings(InsecureRequestWarning)
+    headers = {'Authorization': f'Bearer {token}'}
+
     # Check if deployment exists
     try:
-        result = subprocess.run([
-            'curl', '-k', '-s', '--connect-timeout', '10',
-            '-H', f'Authorization: Bearer {token}',
-            f'{server}/apis/apps/v1/namespaces/{namespace}/deployments/nginx-web'
-        ], capture_output=True, text=True, timeout=30)
+        response = session.get(
+            f'{server}/apis/apps/v1/namespaces/{namespace}/deployments/nginx-web',
+            headers=headers, timeout=30)
 
-        if result.returncode == 0 and 'NotFound' not in result.stdout:
+        if response.status_code == 200:
             results['deployment_exists'] = True
-            deployment = json.loads(result.stdout)
+            deployment = response.json()
 
             # Check replicas
             desired_replicas = deployment.get('spec', {}).get('replicas', 0)
@@ -258,14 +269,12 @@ def evaluate_task(task_id, kubeconfig_path):
 
     # Check if pods are running
     try:
-        result = subprocess.run([
-            'curl', '-k', '-s', '--connect-timeout', '10',
-            '-H', f'Authorization: Bearer {token}',
-            f'{server}/api/v1/namespaces/{namespace}/pods?labelSelector=app=nginx-web'
-        ], capture_output=True, text=True, timeout=30)
+        response = session.get(
+            f'{server}/api/v1/namespaces/{namespace}/pods?labelSelector=app=nginx-web',
+            headers=headers, timeout=30)
 
-        if result.returncode == 0 and 'NotFound' not in result.stdout:
-            pods = json.loads(result.stdout)
+        if response.status_code == 200:
+            pods = response.json()
             pod_items = pods.get('items', [])
 
             results['pod_count_correct'] = (len(pod_items) == 3)
