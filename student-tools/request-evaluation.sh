@@ -25,7 +25,7 @@ STUDENT_ID=$(cat $STUDENT_ID_FILE | tr -d '\n\r ')
 
 # Task configuration
 TASK_ID=${1:-"task-01"}
-NAMESPACE="task-${TASK_ID}"
+NAMESPACE="${TASK_ID}"
 
 if [ -z "$1" ]; then
     echo "Usage: $0 <task-id>"
