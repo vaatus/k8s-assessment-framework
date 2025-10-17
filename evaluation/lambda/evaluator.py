@@ -176,7 +176,7 @@ def test_cluster_connection(kubeconfig_path, task_id):
         urllib3.disable_warnings(InsecureRequestWarning)
 
         headers = {'Authorization': f'Bearer {token}'}
-        response = session.get(f'{server}/api/v1/namespaces/task-{task_id}',
+        response = session.get(f'{server}/api/v1/namespaces/{task_id}',
                               headers=headers, timeout=30)
 
         if response.status_code == 200:
@@ -184,7 +184,7 @@ def test_cluster_connection(kubeconfig_path, task_id):
         elif response.status_code == 404:
             return {
                 'success': False,
-                'error': f'Namespace task-{task_id} not found'
+                'error': f'Namespace {task_id} not found'
             }
         elif response.status_code == 401:
             return {
@@ -215,7 +215,7 @@ def evaluate_task(task_id, kubeconfig_path):
         'pod_count_correct': False
     }
 
-    namespace = f'task-{task_id}'
+    namespace = task_id
 
     # Read kubeconfig to get server and token
     try:
