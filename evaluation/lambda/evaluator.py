@@ -155,21 +155,41 @@ users:
 def test_cluster_connection(kubeconfig_path, task_id):
     """Test connection to student cluster"""
     try:
-        result = subprocess.run(
-            ['kubectl', '--kubeconfig', kubeconfig_path, 'get', 'namespace', f'task-{task_id}'],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        
+        # Use curl to test the API endpoint directly since kubectl might not be available
+        import json
+
+        # Read kubeconfig to get server and token
+        with open(kubeconfig_path, 'r') as f:
+            import yaml
+            kubeconfig = yaml.safe_load(f)
+
+        server = kubeconfig['clusters'][0]['cluster']['server']
+        token = kubeconfig['users'][0]['user']['token']
+
+        # Test API connectivity with curl
+        result = subprocess.run([
+            'curl', '-k', '-s', '--connect-timeout', '10',
+            '-H', f'Authorization: Bearer {token}',
+            f'{server}/api/v1/namespaces/task-{task_id}'
+        ], capture_output=True, text=True, timeout=30)
+
         if result.returncode == 0:
-            return {'success': True}
+            # Check if response contains namespace info or 404
+            if 'NotFound' in result.stdout:
+                return {
+                    'success': False,
+                    'error': f'Namespace task-{task_id} not found'
+                }
+            elif '"kind":"Namespace"' in result.stdout:
+                return {'success': True}
+            else:
+                return {'success': True}  # API is accessible
         else:
             return {
                 'success': False,
-                'error': f'Namespace task-{task_id} not found or inaccessible'
+                'error': f'Cannot connect to cluster API: {result.stderr}'
             }
-            
+
     except subprocess.TimeoutExpired:
         return {'success': False, 'error': 'Connection timeout'}
     except Exception as e:
@@ -177,7 +197,7 @@ def test_cluster_connection(kubeconfig_path, task_id):
 
 def evaluate_task(task_id, kubeconfig_path):
     """Evaluate task based on requirements"""
-    
+
     results = {
         'deployment_exists': False,
         'replicas_correct': False,
@@ -187,65 +207,81 @@ def evaluate_task(task_id, kubeconfig_path):
         'pods_running': False,
         'pod_count_correct': False
     }
-    
+
     namespace = f'task-{task_id}'
-    
+
+    # Read kubeconfig to get server and token
+    try:
+        with open(kubeconfig_path, 'r') as f:
+            import yaml
+            kubeconfig = yaml.safe_load(f)
+
+        server = kubeconfig['clusters'][0]['cluster']['server']
+        token = kubeconfig['users'][0]['user']['token']
+    except Exception as e:
+        print(f"Error reading kubeconfig: {e}")
+        return results
+
     # Check if deployment exists
     try:
-        cmd = ['kubectl', '--kubeconfig', kubeconfig_path, 'get', 'deployment', 
-               'nginx-web', '-n', namespace, '-o', 'json']
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        
-        if result.returncode == 0:
+        result = subprocess.run([
+            'curl', '-k', '-s', '--connect-timeout', '10',
+            '-H', f'Authorization: Bearer {token}',
+            f'{server}/apis/apps/v1/namespaces/{namespace}/deployments/nginx-web'
+        ], capture_output=True, text=True, timeout=30)
+
+        if result.returncode == 0 and 'NotFound' not in result.stdout:
             results['deployment_exists'] = True
             deployment = json.loads(result.stdout)
-            
+
             # Check replicas
             desired_replicas = deployment.get('spec', {}).get('replicas', 0)
             results['replicas_correct'] = (desired_replicas == 3)
-            
+
             # Check image
             containers = deployment.get('spec', {}).get('template', {}).get('spec', {}).get('containers', [])
             if containers:
                 image = containers[0].get('image', '')
                 results['image_correct'] = ('nginx:1.25' in image)
-                
+
                 # Check resources
                 resources = containers[0].get('resources', {})
                 limits = resources.get('limits', {})
                 results['resources_set'] = ('cpu' in limits and 'memory' in limits)
-            
+
             # Check labels
             labels = deployment.get('metadata', {}).get('labels', {})
             results['labels_correct'] = (labels.get('app') == 'nginx-web')
-            
+
     except Exception as e:
         print(f"Error checking deployment: {e}")
-    
+
     # Check if pods are running
     try:
-        cmd = ['kubectl', '--kubeconfig', kubeconfig_path, 'get', 'pods', 
-               '-n', namespace, '-l', 'app=nginx-web', '-o', 'json']
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        
-        if result.returncode == 0:
+        result = subprocess.run([
+            'curl', '-k', '-s', '--connect-timeout', '10',
+            '-H', f'Authorization: Bearer {token}',
+            f'{server}/api/v1/namespaces/{namespace}/pods?labelSelector=app=nginx-web'
+        ], capture_output=True, text=True, timeout=30)
+
+        if result.returncode == 0 and 'NotFound' not in result.stdout:
             pods = json.loads(result.stdout)
             pod_items = pods.get('items', [])
-            
+
             results['pod_count_correct'] = (len(pod_items) == 3)
-            
+
             # Check if all pods are running
             running_count = 0
             for pod in pod_items:
                 phase = pod.get('status', {}).get('phase', '')
                 if phase == 'Running':
                     running_count += 1
-            
+
             results['pods_running'] = (running_count == 3)
-            
+
     except Exception as e:
         print(f"Error checking pods: {e}")
-    
+
     return results
 
 def calculate_score(results):

@@ -20,9 +20,18 @@ echo "Using Role ARN: ${ROLE_ARN}"
 # Navigate to lambda directory
 cd ../evaluation/lambda
 
-# Package Lambda
+# Package Lambda with dependencies
 echo "Creating deployment package..."
-zip -r lambda-package.zip evaluator.py
+mkdir -p lambda-build
+cp evaluator.py lambda-build/
+
+# Install PyYAML dependency
+cd lambda-build
+pip3 install PyYAML -t .
+
+# Create package
+zip -r ../lambda-package.zip .
+cd ..
 
 # Check if function exists
 FUNCTION_EXISTS=$(aws lambda list-functions --region ${REGION} --query "Functions[?FunctionName=='${FUNCTION_NAME}'].FunctionName" --output text)

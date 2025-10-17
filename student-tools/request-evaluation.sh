@@ -49,6 +49,18 @@ else
     echo "Getting cluster credentials from kubectl..."
     CLUSTER_ENDPOINT=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
 
+    # If cluster endpoint is localhost, update it to external IP
+    if [[ "$CLUSTER_ENDPOINT" == *"127.0.0.1"* ]] || [[ "$CLUSTER_ENDPOINT" == *"localhost"* ]]; then
+        echo "Detected localhost endpoint, updating to external IP..."
+        EXTERNAL_IP=$(curl -s --connect-timeout 5 http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || echo "")
+        if [ -n "$EXTERNAL_IP" ]; then
+            CLUSTER_ENDPOINT="https://${EXTERNAL_IP}:6443"
+            echo "Updated cluster endpoint to: ${CLUSTER_ENDPOINT}"
+        else
+            echo "WARNING: Could not get external IP, using localhost endpoint"
+        fi
+    fi
+
     # Try to get token from evaluator service account first
     CLUSTER_TOKEN=$(kubectl get secret evaluator-token -n kube-system -o jsonpath='{.data.token}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
 
