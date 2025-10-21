@@ -294,7 +294,7 @@ Resources:
           API_KEY=$(cat $API_KEY_FILE | tr -d '\n\r ')
 
           # Task configuration
-          TASK_ID=${1:-"${TaskSelection}"}
+          TASK_ID=$${1:-"${TaskSelection}"}
           NAMESPACE="$TASK_ID"
 
           if [ -z "$1" ]; then
@@ -393,7 +393,7 @@ Resources:
           API_KEY=$(cat $API_KEY_FILE | tr -d '\n\r ')
 
           # Task configuration
-          TASK_ID=${1:-"${TaskSelection}"}
+          TASK_ID=$${1:-"${TaskSelection}"}
           EVAL_TOKEN_FILE="eval-token-$TASK_ID.txt"
 
           if [ -z "$1" ]; then
