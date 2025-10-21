@@ -1,5 +1,6 @@
 import json
 import boto3
+import os
 from datetime import datetime
 
 s3 = boto3.client('s3')
@@ -10,8 +11,25 @@ def lambda_handler(event, context):
     Handle final submission from student
     Requires: eval_token (from previous evaluation)
     """
-    
+
     try:
+        # Validate API Key
+        api_key = os.environ.get('API_KEY')
+        if api_key:
+            # Check for API key in headers
+            headers = event.get('headers', {})
+            # Handle case-insensitive headers
+            request_api_key = headers.get('X-API-Key') or headers.get('x-api-key')
+
+            if not request_api_key or request_api_key != api_key:
+                return {
+                    'statusCode': 401,
+                    'body': json.dumps({
+                        'error': 'Unauthorized',
+                        'message': 'Invalid or missing API key'
+                    })
+                }
+
         # Parse request
         if 'body' in event:
             if isinstance(event['body'], str):
@@ -20,7 +38,7 @@ def lambda_handler(event, context):
                 body = event['body']
         else:
             body = event
-            
+
         student_id = body.get('student_id')
         task_id = body.get('task_id')
         eval_token = body.get('eval_token')

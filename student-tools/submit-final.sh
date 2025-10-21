@@ -6,6 +6,7 @@ echo "=== Final Task Submission ==="
 # Configuration files
 SUBMISSION_ENDPOINT_FILE="../SUBMISSION_ENDPOINT.txt"
 STUDENT_ID_FILE="../student-id.txt"
+API_KEY_FILE="../API_KEY.txt"
 
 # Check for required files
 if [ ! -f "$SUBMISSION_ENDPOINT_FILE" ]; then
@@ -20,8 +21,15 @@ if [ ! -f "$STUDENT_ID_FILE" ]; then
     exit 1
 fi
 
+if [ ! -f "$API_KEY_FILE" ]; then
+    echo "ERROR: API_KEY.txt not found"
+    echo "Please ensure the instructor has provided the API key"
+    exit 1
+fi
+
 SUBMISSION_ENDPOINT=$(cat $SUBMISSION_ENDPOINT_FILE)
 STUDENT_ID=$(cat $STUDENT_ID_FILE | tr -d '\n\r ')
+API_KEY=$(cat $API_KEY_FILE | tr -d '\n\r ')
 
 # Task configuration
 TASK_ID=${1:-"task-01"}
@@ -76,6 +84,7 @@ echo "Submitting final results..."
 # Make submission request
 RESPONSE=$(curl -s -X POST \
     -H "Content-Type: application/json" \
+    -H "X-API-Key: ${API_KEY}" \
     -d "$SUBMISSION_PAYLOAD" \
     "$SUBMISSION_ENDPOINT")
 

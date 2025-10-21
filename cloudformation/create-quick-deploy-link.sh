@@ -12,15 +12,24 @@ STACK_NAME_DEFAULT="k8s-student-environment"
 # Parameters to update in template (from your instructor setup)
 EVALUATION_ENDPOINT="${1}"
 SUBMISSION_ENDPOINT="${2}"
-KEYPAIR_NAME="${3:-k8s-assessment-keypair}"
+API_KEY="${3}"
+KEYPAIR_NAME="${4:-k8s-assessment-keypair}"
 
-if [ -z "$1" ] || [ -z "$2" ]; then
-    echo "Usage: $0 <evaluation-endpoint> <submission-endpoint> [keypair-name]"
+if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then
+    echo "Usage: $0 <evaluation-endpoint> <submission-endpoint> <api-key> [keypair-name]"
     echo ""
     echo "Example:"
     echo "$0 \\"
     echo "  'https://abc123.lambda-url.us-east-1.on.aws/' \\"
     echo "  'https://def456.lambda-url.us-east-1.on.aws/' \\"
+    echo "  'your-api-key-here' \\"
+    echo "  'my-keypair'"
+    echo ""
+    echo "Or use the endpoint files:"
+    echo "$0 \\"
+    echo "  \"\$(cat ../instructor-tools/EVALUATION_ENDPOINT.txt)\" \\"
+    echo "  \"\$(cat ../instructor-tools/SUBMISSION_ENDPOINT.txt)\" \\"
+    echo "  \"\$(cat ../instructor-tools/API_KEY.txt)\" \\"
     echo "  'my-keypair'"
     echo ""
     echo "This will create a quick deploy link that students can use."
@@ -30,6 +39,7 @@ fi
 echo "Configuration:"
 echo "  Evaluation Endpoint: ${EVALUATION_ENDPOINT}"
 echo "  Submission Endpoint: ${SUBMISSION_ENDPOINT}"
+echo "  API Key: ${API_KEY:0:8}... (hidden)"
 echo "  Default Key Pair: ${KEYPAIR_NAME}"
 
 # Create or check S3 bucket
@@ -63,9 +73,11 @@ echo "Updating template with instructor endpoints..."
 cp ${TEMPLATE_FILE} ${TEMPLATE_FILE}.tmp
 
 # Update default values in template
-sed -i "s|Default: 'https://.*lambda-url.*amazonaws.com/'|Default: '${EVALUATION_ENDPOINT}'|g" ${TEMPLATE_FILE}.tmp
-sed -i "s|Default: 'https://.*lambda-url.*amazonaws.com/'|Default: '${SUBMISSION_ENDPOINT}'|g" ${TEMPLATE_FILE}.tmp
-sed -i "s|Default: 'k8s-assessment-keypair'|Default: '${KEYPAIR_NAME}'|g" ${TEMPLATE_FILE}.tmp
+# Note: Need to update EvaluationEndpoint and SubmissionEndpoint separately
+sed -i "/EvaluationEndpoint:/,/Default:/{s|Default:.*|Default: '${EVALUATION_ENDPOINT}'|}" ${TEMPLATE_FILE}.tmp
+sed -i "/SubmissionEndpoint:/,/Default:/{s|Default:.*|Default: '${SUBMISSION_ENDPOINT}'|}" ${TEMPLATE_FILE}.tmp
+sed -i "/ApiKey:/,/Default:/{s|Default:.*|Default: '${API_KEY}'|}" ${TEMPLATE_FILE}.tmp
+sed -i "/KeyPairName:/,/Default:/{s|Default:.*|Default: '${KEYPAIR_NAME}'|}" ${TEMPLATE_FILE}.tmp
 
 # Upload template to S3
 echo "Uploading template to S3..."

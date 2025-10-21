@@ -68,6 +68,12 @@ Parameters:
     Default: 'https://ejczd2msua2p2jcargv2f6djxu0nxigv.lambda-url.us-east-1.on.aws/'
     Description: 'Submission endpoint (pre-configured)'
 
+  ApiKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: 'API key for Lambda endpoints (pre-configured)'
+
 Mappings:
   TaskConfiguration:
     task-01:
@@ -247,6 +253,7 @@ Resources:
           # Save configuration
           echo "${EvaluationEndpoint}" > EVALUATION_ENDPOINT.txt
           echo "${SubmissionEndpoint}" > SUBMISSION_ENDPOINT.txt
+          echo "${ApiKey}" > API_KEY.txt
           echo "${NeptunCode}" > student-id.txt
           echo "https://$EXTERNAL_IP:6443" > cluster-endpoint.txt
           echo "$TOKEN" > cluster-token.txt
@@ -264,6 +271,7 @@ Resources:
           # Configuration files
           EVALUATION_ENDPOINT_FILE="../EVALUATION_ENDPOINT.txt"
           STUDENT_ID_FILE="../student-id.txt"
+          API_KEY_FILE="../API_KEY.txt"
 
           # Check for required files
           if [ ! -f "$EVALUATION_ENDPOINT_FILE" ]; then
@@ -276,8 +284,14 @@ Resources:
               exit 1
           fi
 
+          if [ ! -f "$API_KEY_FILE" ]; then
+              echo "ERROR: API_KEY.txt not found"
+              exit 1
+          fi
+
           EVALUATION_ENDPOINT=$(cat $EVALUATION_ENDPOINT_FILE)
           STUDENT_ID=$(cat $STUDENT_ID_FILE | tr -d '\n\r ')
+          API_KEY=$(cat $API_KEY_FILE | tr -d '\n\r ')
 
           # Task configuration
           TASK_ID=${!1:-"${TaskSelection}"}
@@ -325,6 +339,7 @@ Resources:
           # Make evaluation request
           RESPONSE=$(curl -s -X POST \
               -H "Content-Type: application/json" \
+              -H "X-API-Key: ${!API_KEY}" \
               -d "$REQUEST_PAYLOAD" \
               "$EVALUATION_ENDPOINT")
 
@@ -355,6 +370,7 @@ Resources:
           # Configuration files
           SUBMISSION_ENDPOINT_FILE="../SUBMISSION_ENDPOINT.txt"
           STUDENT_ID_FILE="../student-id.txt"
+          API_KEY_FILE="../API_KEY.txt"
 
           # Check for required files
           if [ ! -f "$SUBMISSION_ENDPOINT_FILE" ]; then
@@ -367,8 +383,14 @@ Resources:
               exit 1
           fi
 
+          if [ ! -f "$API_KEY_FILE" ]; then
+              echo "ERROR: API_KEY.txt not found"
+              exit 1
+          fi
+
           SUBMISSION_ENDPOINT=$(cat $SUBMISSION_ENDPOINT_FILE)
           STUDENT_ID=$(cat $STUDENT_ID_FILE | tr -d '\n\r ')
+          API_KEY=$(cat $API_KEY_FILE | tr -d '\n\r ')
 
           # Task configuration
           TASK_ID=${!1:-"${TaskSelection}"}
@@ -425,6 +447,7 @@ Resources:
           # Make submission request
           RESPONSE=$(curl -s -X POST \
               -H "Content-Type: application/json" \
+              -H "X-API-Key: ${!API_KEY}" \
               -d "$SUBMISSION_PAYLOAD" \
               "$SUBMISSION_ENDPOINT")
 

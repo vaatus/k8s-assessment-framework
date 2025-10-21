@@ -7,6 +7,17 @@ echo "=== Deploying Evaluation Lambda ==="
 FUNCTION_NAME="k8s-task-evaluator"
 REGION="us-east-1"
 
+# Generate or read API key
+if [ ! -f "API_KEY.txt" ]; then
+    echo "Generating new API key..."
+    API_KEY=$(openssl rand -hex 32)
+    echo "${API_KEY}" > API_KEY.txt
+    echo "✅ API key generated and saved to API_KEY.txt"
+else
+    API_KEY=$(cat API_KEY.txt)
+    echo "✅ Using existing API key from API_KEY.txt"
+fi
+
 # Get LabRole ARN
 ROLE_ARN=$(aws iam get-role --role-name LabRole --query 'Role.Arn' --output text)
 
@@ -42,6 +53,15 @@ if [ -n "$FUNCTION_EXISTS" ]; then
       --function-name ${FUNCTION_NAME} \
       --zip-file fileb://lambda-package.zip \
       --region ${REGION}
+
+    echo "Waiting for update to complete..."
+    aws lambda wait function-updated --function-name ${FUNCTION_NAME} --region ${REGION}
+
+    echo "Updating environment variables..."
+    aws lambda update-function-configuration \
+      --function-name ${FUNCTION_NAME} \
+      --environment "Variables={API_KEY=${API_KEY}}" \
+      --region ${REGION}
 else
     echo "Creating new function..."
     aws lambda create-function \
@@ -52,8 +72,9 @@ else
       --zip-file fileb://lambda-package.zip \
       --timeout 300 \
       --memory-size 512 \
+      --environment "Variables={API_KEY=${API_KEY}}" \
       --region ${REGION}
-    
+
     echo "Waiting for function to be active..."
     aws lambda wait function-active --function-name ${FUNCTION_NAME} --region ${REGION}
 fi

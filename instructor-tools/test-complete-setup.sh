@@ -48,35 +48,43 @@ fi
 
 echo ""
 echo "4. Testing Lambda connectivity..."
-if [ -f "EVALUATION_ENDPOINT.txt" ]; then
+if [ -f "EVALUATION_ENDPOINT.txt" ] && [ -f "API_KEY.txt" ]; then
     EVAL_URL=$(cat EVALUATION_ENDPOINT.txt)
+    API_KEY=$(cat API_KEY.txt)
 
     # Test with minimal payload
     RESPONSE=$(curl -s -X POST \
         -H "Content-Type: application/json" \
+        -H "X-API-Key: ${API_KEY}" \
         -d '{"student_id": "TEST", "task_id": "test"}' \
         "$EVAL_URL" || echo "CURL_FAILED")
 
     if [[ "$RESPONSE" == *"Missing required parameters"* ]] || [[ "$RESPONSE" == *"error"* ]]; then
-        echo "✅ Evaluation Lambda responding correctly"
+        echo "✅ Evaluation Lambda responding correctly (with API key authentication)"
     else
         echo "❌ Evaluation Lambda not responding as expected"
         echo "Response: $RESPONSE"
     fi
+elif [ -f "EVALUATION_ENDPOINT.txt" ]; then
+    echo "⚠️  API_KEY.txt not found - Lambda will require API key for authentication"
 fi
 
 echo ""
 echo "=== Setup Test Complete ==="
 
 # Check if ready for quick deploy link creation
-if [ -f "EVALUATION_ENDPOINT.txt" ] && [ -f "SUBMISSION_ENDPOINT.txt" ]; then
+if [ -f "EVALUATION_ENDPOINT.txt" ] && [ -f "SUBMISSION_ENDPOINT.txt" ] && [ -f "API_KEY.txt" ]; then
     echo ""
     echo "🎯 Ready for quick deploy link creation!"
     echo "Next step: cd ../cloudformation && ./create-quick-deploy-link.sh \\"
     echo "  \"\$(cat ../instructor-tools/EVALUATION_ENDPOINT.txt)\" \\"
     echo "  \"\$(cat ../instructor-tools/SUBMISSION_ENDPOINT.txt)\" \\"
+    echo "  \"\$(cat ../instructor-tools/API_KEY.txt)\" \\"
     echo "  \"your-keypair-name\""
 else
     echo ""
     echo "⚠️  Not ready yet. Complete the missing steps above first."
+    if [ ! -f "API_KEY.txt" ]; then
+        echo "Missing: API_KEY.txt (run ./deploy-evaluation-lambda.sh to generate)"
+    fi
 fi

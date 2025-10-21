@@ -19,8 +19,25 @@ def lambda_handler(event, context):
     Receives: student_id, task_id, cluster_endpoint, cluster_token
     Returns: evaluation_token
     """
-    
+
     try:
+        # Validate API Key
+        api_key = os.environ.get('API_KEY')
+        if api_key:
+            # Check for API key in headers
+            headers = event.get('headers', {})
+            # Handle case-insensitive headers
+            request_api_key = headers.get('X-API-Key') or headers.get('x-api-key')
+
+            if not request_api_key or request_api_key != api_key:
+                return {
+                    'statusCode': 401,
+                    'body': json.dumps({
+                        'error': 'Unauthorized',
+                        'message': 'Invalid or missing API key'
+                    })
+                }
+
         # Parse request - handle both direct invoke and API Gateway
         if 'body' in event:
             if isinstance(event['body'], str):
@@ -29,7 +46,7 @@ def lambda_handler(event, context):
                 body = event['body']
         else:
             body = event
-            
+
         student_id = body.get('student_id')
         task_id = body.get('task_id')
         cluster_endpoint = body.get('cluster_endpoint')
