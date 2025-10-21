@@ -294,15 +294,17 @@ Resources:
           API_KEY=$(cat $API_KEY_FILE | tr -d '\n\r ')
 
           # Task configuration
-          TASK_ID=$${1:-"${TaskSelection}"}
-          NAMESPACE="$TASK_ID"
-
-          if [ -z "$1" ]; then
-              echo "Usage: $0 <task-id>"
-              echo "Example: $0 ${TaskSelection}"
-              echo "Your assigned task: ${TaskSelection}"
+          if [ -n "$$1" ]; then
+              TASK_ID="$$1"
+          else
               TASK_ID="${TaskSelection}"
-              NAMESPACE="${TaskSelection}"
+          fi
+          NAMESPACE="$$TASK_ID"
+
+          if [ -z "$$1" ]; then
+              echo "Usage: $$0 <task-id>"
+              echo "Example: $$0 ${TaskSelection}"
+              echo "Your assigned task: ${TaskSelection}"
           fi
 
           echo "Student ID: $STUDENT_ID"
@@ -393,15 +395,18 @@ Resources:
           API_KEY=$(cat $API_KEY_FILE | tr -d '\n\r ')
 
           # Task configuration
-          TASK_ID=$${1:-"${TaskSelection}"}
-          EVAL_TOKEN_FILE="eval-token-$TASK_ID.txt"
-
-          if [ -z "$1" ]; then
-              echo "Usage: $0 <task-id>"
-              echo "Example: $0 ${TaskSelection}"
-              echo "Your assigned task: ${TaskSelection}"
+          if [ -n "$$1" ]; then
+              TASK_ID="$$1"
+              EVAL_TOKEN_FILE="eval-token-$$TASK_ID.txt"
+          else
               TASK_ID="${TaskSelection}"
               EVAL_TOKEN_FILE="eval-token-${TaskSelection}.txt"
+          fi
+
+          if [ -z "$$1" ]; then
+              echo "Usage: $$0 <task-id>"
+              echo "Example: $$0 ${TaskSelection}"
+              echo "Your assigned task: ${TaskSelection}"
           fi
 
           if [ ! -f "$EVAL_TOKEN_FILE" ]; then
