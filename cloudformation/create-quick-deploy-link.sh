@@ -50,22 +50,26 @@ if aws s3 ls "s3://${BUCKET_NAME}" 2>/dev/null; then
 else
     echo "Creating S3 bucket: ${BUCKET_NAME}"
     aws s3 mb "s3://${BUCKET_NAME}" --region ${REGION}
-
-    # Enable public read access for template files
-    aws s3api put-bucket-policy --bucket ${BUCKET_NAME} --policy '{
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Sid": "PublicReadGetObject",
-                "Effect": "Allow",
-                "Principal": "*",
-                "Action": "s3:GetObject",
-                "Resource": "arn:aws:s3:::'${BUCKET_NAME}'/*"
-            }
-        ]
-    }'
-    echo "✅ Bucket created and configured for public access"
 fi
+
+# Set secure bucket policy - ONLY template and HTML files are public
+echo "Configuring secure bucket policy (template files only)..."
+aws s3api put-bucket-policy --bucket ${BUCKET_NAME} --policy '{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "PublicReadTemplateOnly",
+            "Effect": "Allow",
+            "Principal": "*",
+            "Action": "s3:GetObject",
+            "Resource": [
+                "arn:aws:s3:::'${BUCKET_NAME}'/student-quick-deploy.yaml",
+                "arn:aws:s3:::'${BUCKET_NAME}'/index.html"
+            ]
+        }
+    ]
+}'
+echo "✅ Bucket policy configured (only template and HTML are public)"
 
 # Update template with instructor endpoints
 echo ""
