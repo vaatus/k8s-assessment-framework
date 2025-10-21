@@ -54,7 +54,7 @@ fi
 
 # Set secure bucket policy - ONLY template and HTML files are public
 echo "Configuring secure bucket policy (template files only)..."
-aws s3api put-bucket-policy --bucket ${BUCKET_NAME} --policy '{
+if aws s3api put-bucket-policy --bucket ${BUCKET_NAME} --policy '{
     "Version": "2012-10-17",
     "Statement": [
         {
@@ -68,8 +68,14 @@ aws s3api put-bucket-policy --bucket ${BUCKET_NAME} --policy '{
             ]
         }
     ]
-}'
-echo "✅ Bucket policy configured (only template and HTML are public)"
+}' 2>/dev/null; then
+    echo "✅ Bucket policy configured (only template and HTML are public)"
+else
+    echo "⚠️  WARNING: Could not set public bucket policy (AWS Learner Lab restriction)"
+    echo "   Bucket created but not public. Students will need to:"
+    echo "   1. Copy the template file manually, OR"
+    echo "   2. You can share the template content directly"
+fi
 
 # Update template with instructor endpoints
 echo ""
