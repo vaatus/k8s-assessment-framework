@@ -48,6 +48,16 @@ else
     echo "✅ Already configured with NONE auth type"
 fi
 
+# Add resource-based policy for public access
+echo "Adding public invoke permission..."
+aws lambda add-permission \
+    --function-name ${EVAL_FUNCTION} \
+    --statement-id FunctionURLAllowPublicAccess \
+    --action lambda:InvokeFunctionUrl \
+    --principal "*" \
+    --function-url-auth-type NONE \
+    --region ${REGION} 2>/dev/null && echo "✅ Permission added" || echo "⚠️  Permission already exists (this is OK)"
+
 # Get Submission Lambda URL
 echo ""
 echo "Processing ${SUB_FUNCTION}..."
@@ -88,6 +98,16 @@ if [ "$SUB_AUTH" != "NONE" ]; then
 else
     echo "✅ Already configured with NONE auth type"
 fi
+
+# Add resource-based policy for public access
+echo "Adding public invoke permission..."
+aws lambda add-permission \
+    --function-name ${SUB_FUNCTION} \
+    --statement-id FunctionURLAllowPublicAccess \
+    --action lambda:InvokeFunctionUrl \
+    --principal "*" \
+    --function-url-auth-type NONE \
+    --region ${REGION} 2>/dev/null && echo "✅ Permission added" || echo "⚠️  Permission already exists (this is OK)"
 
 echo ""
 echo "=== Update Complete ==="
