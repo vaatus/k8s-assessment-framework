@@ -482,10 +482,7 @@ Resources:
           # Create task directory with README
           mkdir -p tasks/${TaskSelection}
           cat > tasks/${TaskSelection}/README.md << TASK_README
-          # ${TaskSelection}: ${FindInMap [TaskConfiguration, !Ref TaskSelection, Description]}
-
-          ## Objective
-          ${FindInMap [TaskConfiguration, !Ref TaskSelection, Requirements]}
+          # Task: ${TaskSelection}
 
           ## Your Assignment
           Complete this task in the \`${TaskSelection}\` namespace.
@@ -534,7 +531,6 @@ Resources:
 
           📁 Workspace: /home/ubuntu/k8s-workspace
           📋 Your Task: ${TaskSelection}
-          🔍 Task Description: ${FindInMap [TaskConfiguration, !Ref TaskSelection, Description]}
 
           📚 Quick Start:
           1. cd k8s-workspace
