@@ -295,7 +295,7 @@ Resources:
 
           # Task configuration
           TASK_ID=${!1:-"${TaskSelection}"}
-          NAMESPACE="$TASK_ID"
+          NAMESPACE="${!TASK_ID}"
 
           if [ -z "$1" ]; then
               echo "Usage: $0 <task-id>"
@@ -305,9 +305,9 @@ Resources:
               NAMESPACE="${TaskSelection}"
           fi
 
-          echo "Student ID: $STUDENT_ID"
-          echo "Task ID: $TASK_ID"
-          echo "Namespace: $NAMESPACE"
+          echo "Student ID: ${!STUDENT_ID}"
+          echo "Task ID: ${!TASK_ID}"
+          echo "Namespace: ${!NAMESPACE}"
 
           # Get cluster credentials
           echo "Getting cluster information..."
@@ -320,15 +320,15 @@ Resources:
               exit 1
           fi
 
-          echo "Cluster Endpoint: $CLUSTER_ENDPOINT"
+          echo "Cluster Endpoint: ${!CLUSTER_ENDPOINT}"
 
           # Create evaluation request payload
           REQUEST_PAYLOAD=$(cat << EOF
           {
-              "student_id": "$STUDENT_ID",
-              "task_id": "$TASK_ID",
-              "cluster_endpoint": "$CLUSTER_ENDPOINT",
-              "cluster_token": "$CLUSTER_TOKEN"
+              "student_id": "${!STUDENT_ID}",
+              "task_id": "${!TASK_ID}",
+              "cluster_endpoint": "${!CLUSTER_ENDPOINT}",
+              "cluster_token": "${!CLUSTER_TOKEN}"
           }
           EOF
           )
@@ -339,7 +339,7 @@ Resources:
           # Make evaluation request
           RESPONSE=$(curl -s -X POST \
               -H "Content-Type: application/json" \
-              -H "X-API-Key: $API_KEY" \
+              -H "X-API-Key: ${!API_KEY}" \
               -d "$REQUEST_PAYLOAD" \
               "$EVALUATION_ENDPOINT")
 
@@ -350,9 +350,9 @@ Resources:
           # Extract and save evaluation token
           EVAL_TOKEN=$(echo "$RESPONSE" | jq -r '.eval_token // empty')
           if [ -n "$EVAL_TOKEN" ] && [ "$EVAL_TOKEN" != "null" ]; then
-              echo "$EVAL_TOKEN" > "eval-token-$TASK_ID.txt"
+              echo "$EVAL_TOKEN" > "eval-token-${!TASK_ID}.txt"
               echo ""
-              echo "Evaluation token saved to: eval-token-$TASK_ID.txt"
+              echo "Evaluation token saved to: eval-token-${!TASK_ID}.txt"
               echo "Use this token to submit your final results when satisfied"
           fi
 
@@ -394,7 +394,7 @@ Resources:
 
           # Task configuration
           TASK_ID=${!1:-"${TaskSelection}"}
-          EVAL_TOKEN_FILE="eval-token-$TASK_ID.txt"
+          EVAL_TOKEN_FILE="eval-token-${!TASK_ID}.txt"
 
           if [ -z "$1" ]; then
               echo "Usage: $0 <task-id>"
@@ -405,16 +405,16 @@ Resources:
           fi
 
           if [ ! -f "$EVAL_TOKEN_FILE" ]; then
-              echo "ERROR: $EVAL_TOKEN_FILE not found"
+              echo "ERROR: ${!EVAL_TOKEN_FILE} not found"
               echo "Please run request-evaluation.sh first to get an evaluation token"
               exit 1
           fi
 
           EVAL_TOKEN=$(cat $EVAL_TOKEN_FILE | tr -d '\n\r ')
 
-          echo "Student ID: $STUDENT_ID"
-          echo "Task ID: $TASK_ID"
-          echo "Evaluation Token: $EVAL_TOKEN"
+          echo "Student ID: ${!STUDENT_ID}"
+          echo "Task ID: ${!TASK_ID}"
+          echo "Evaluation Token: ${!EVAL_TOKEN}"
 
           # Confirm submission
           echo ""
@@ -434,9 +434,9 @@ Resources:
           # Create submission payload
           SUBMISSION_PAYLOAD=$(cat << EOF
           {
-              "student_id": "$STUDENT_ID",
-              "task_id": "$TASK_ID",
-              "eval_token": "$EVAL_TOKEN"
+              "student_id": "${!STUDENT_ID}",
+              "task_id": "${!TASK_ID}",
+              "eval_token": "${!EVAL_TOKEN}"
           }
           EOF
           )
@@ -447,7 +447,7 @@ Resources:
           # Make submission request
           RESPONSE=$(curl -s -X POST \
               -H "Content-Type: application/json" \
-              -H "X-API-Key: $API_KEY" \
+              -H "X-API-Key: ${!API_KEY}" \
               -d "$SUBMISSION_PAYLOAD" \
               "$SUBMISSION_ENDPOINT")
 
