@@ -454,10 +454,10 @@ Resources:
               --arg token "$KUBE_TOKEN" \
               --arg ip "$PUBLIC_IP" \
               '{
-                neptun_code: $neptun,
+                student_id: $neptun,
                 task_id: $task,
                 cluster_endpoint: $api,
-                service_account_token: $token,
+                cluster_token: $token,
                 public_ip: $ip
               }')
 
@@ -535,10 +535,10 @@ Resources:
               --arg token "$KUBE_TOKEN" \
               --arg ip "$PUBLIC_IP" \
               '{
-                neptun_code: $neptun,
+                student_id: $neptun,
                 task_id: $task,
                 cluster_endpoint: $api,
-                service_account_token: $token,
+                cluster_token: $token,
                 public_ip: $ip
               }')
 
