@@ -98,8 +98,28 @@ echo ""
 
 # Package evaluation Lambda
 cd ../evaluation/lambda
-echo "Packaging evaluation Lambda..."
-zip -r /tmp/evaluator.zip evaluator.py
+echo "Packaging evaluation Lambda with dependencies..."
+
+# Install dependencies to a temporary directory
+if [ -f "requirements.txt" ]; then
+    echo "Installing Python dependencies..."
+    pip install -r requirements.txt -t /tmp/lambda-package --quiet
+
+    # Copy Lambda function
+    cp evaluator.py /tmp/lambda-package/
+
+    # Create zip from package directory
+    cd /tmp/lambda-package
+    zip -r /tmp/evaluator.zip . -q
+    cd -
+
+    # Cleanup
+    rm -rf /tmp/lambda-package
+else
+    # Fallback: just package the Python file
+    zip -r /tmp/evaluator.zip evaluator.py -q
+fi
+
 cd ../../instructor-tools
 
 # Create evaluation Lambda function
