@@ -568,10 +568,9 @@ Resources:
               --arg task "$TASK_ID" \
               --arg eval_token "$EVAL_TOKEN" \
               '{
-                neptun_code: $neptun,
+                student_id: $neptun,
                 task_id: $task,
-                eval_token: $eval_token,
-                submission_type: "final"
+                eval_token: $eval_token
               }')
 
             # Send submission request
