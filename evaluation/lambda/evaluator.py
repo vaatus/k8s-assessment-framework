@@ -281,7 +281,7 @@ def evaluate_task(task_id, kubeconfig_path):
 
             # Check labels
             labels = deployment.get('metadata', {}).get('labels', {})
-            results['labels_correct'] = (labels.get('app') == 'nginx-web')
+            results['labels_correct'] = (labels.get('app') == 'nginx')
 
     except Exception as e:
         print(f"Error checking deployment: {e}")
@@ -289,14 +289,14 @@ def evaluate_task(task_id, kubeconfig_path):
     # Check if pods are running
     try:
         response = session.get(
-            f'{server}/api/v1/namespaces/{namespace}/pods?labelSelector=app=nginx-web',
+            f'{server}/api/v1/namespaces/{namespace}/pods?labelSelector=app=nginx',
             headers=headers, timeout=30)
 
         if response.status_code == 200:
             pods = response.json()
             pod_items = pods.get('items', [])
 
-            results['pod_count_correct'] = (len(pod_items) == 3)
+            results['pod_count_correct'] = (len(pod_items) == 2)
 
             # Check if all pods are running
             running_count = 0
@@ -305,7 +305,7 @@ def evaluate_task(task_id, kubeconfig_path):
                 if phase == 'Running':
                     running_count += 1
 
-            results['pods_running'] = (running_count == 3)
+            results['pods_running'] = (running_count == 2)
 
     except Exception as e:
         print(f"Error checking pods: {e}")

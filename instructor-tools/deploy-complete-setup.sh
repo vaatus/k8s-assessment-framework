@@ -10,7 +10,15 @@ REGION="us-east-1"
 RESULTS_BUCKET="k8s-eval-results"
 TEMPLATES_BUCKET="k8s-assessment-templates"
 TEMPLATE_FILE="unified-student-template.yaml"
-API_KEY=$(openssl rand -hex 16)
+
+# Reuse existing API key if available, otherwise generate new one
+if [ -f "API_KEY.txt" ]; then
+    API_KEY=$(cat API_KEY.txt)
+    echo "Using existing API key from API_KEY.txt"
+else
+    API_KEY=$(openssl rand -hex 16)
+    echo "Generated new API key"
+fi
 
 # Check if we're in the correct directory
 if [ ! -f "deploy-complete-setup.sh" ]; then
