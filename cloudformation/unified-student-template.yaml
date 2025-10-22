@@ -1,0 +1,546 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::LanguageExtensions'
+
+Description: >
+  Kubernetes Assessment Framework - Student Environment
+  Deploys a single-node K3s cluster with Kyverno for task evaluation.
+  Integrates with instructor's remote evaluation system.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Student Information"
+        Parameters:
+          - NeptunCode
+          - TaskSelection
+      - Label:
+          default: "AWS Configuration"
+        Parameters:
+          - KeyPairName
+          - InstanceType
+      - Label:
+          default: "Evaluation Configuration (Pre-configured by Instructor)"
+        Parameters:
+          - EvaluationEndpoint
+          - SubmissionEndpoint
+          - ApiKey
+
+    ParameterLabels:
+      NeptunCode:
+        default: "Your 6-character Neptun Code (e.g., ABC123)"
+      TaskSelection:
+        default: "Choose your assigned task"
+      KeyPairName:
+        default: "SSH Key Pair Name"
+      InstanceType:
+        default: "EC2 Instance Type"
+      EvaluationEndpoint:
+        default: "Evaluation Lambda Endpoint"
+      SubmissionEndpoint:
+        default: "Submission Lambda Endpoint"
+      ApiKey:
+        default: "API Key"
+
+Parameters:
+  NeptunCode:
+    Type: String
+    MinLength: 6
+    MaxLength: 6
+    AllowedPattern: '[A-Za-z0-9]{6}'
+    Description: Your unique 6-character Neptun Code (e.g., ABC123)
+    ConstraintDescription: Must be exactly 6 alphanumeric characters
+
+  TaskSelection:
+    Type: String
+    Default: 'task-01'
+    AllowedValues:
+      - task-01
+      - task-02
+      - task-03
+    Description: Select the task assigned to you by your instructor
+    ConstraintDescription: Choose your assigned task
+
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: 'vockey'
+    Description: Name of an existing EC2 KeyPair (usually 'vockey' in AWS Learner Lab)
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair
+
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues:
+      - t3.small
+      - t3.medium
+      - t3.large
+    Description: EC2 instance type for K3s server
+    ConstraintDescription: Must be a valid EC2 instance type
+
+  EvaluationEndpoint:
+    Type: String
+    Default: ''
+    Description: Lambda function URL for evaluation (pre-configured by instructor)
+
+  SubmissionEndpoint:
+    Type: String
+    Default: ''
+    Description: Lambda function URL for submission (pre-configured by instructor)
+
+  ApiKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: API key for authentication (pre-configured by instructor)
+
+Mappings:
+  TaskConfiguration:
+    task-01:
+      Name: "Deploy NGINX Web Application"
+      Description: "Create a scalable NGINX deployment with 3 replicas and resource limits"
+      GitHubPath: "tasks/task-01"
+    task-02:
+      Name: "Service and Ingress Configuration"
+      Description: "Expose applications using Kubernetes services and ingress controllers"
+      GitHubPath: "tasks/task-02"
+    task-03:
+      Name: "ConfigMaps and Secrets"
+      Description: "Manage application configuration using ConfigMaps and Secrets"
+      GitHubPath: "tasks/task-03"
+
+Resources:
+  # VPC Configuration
+  StudentVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub 'k8s-student-${NeptunCode}-vpc'
+
+  StudentInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub 'k8s-student-${NeptunCode}-igw'
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref StudentVPC
+      InternetGatewayId: !Ref StudentInternetGateway
+
+  StudentPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref StudentVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs ''
+      Tags:
+        - Key: Name
+          Value: !Sub 'k8s-student-${NeptunCode}-public-subnet'
+
+  StudentRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref StudentVPC
+      Tags:
+        - Key: Name
+          Value: !Sub 'k8s-student-${NeptunCode}-rt'
+
+  StudentPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref StudentRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref StudentInternetGateway
+
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref StudentPublicSubnet
+      RouteTableId: !Ref StudentRouteTable
+
+  # Security Group
+  StudentSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub 'k8s-student-${NeptunCode}-sg'
+      GroupDescription: Security group for K8s student environment
+      VpcId: !Ref StudentVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH access
+        - IpProtocol: tcp
+          FromPort: 6443
+          ToPort: 6443
+          CidrIp: 0.0.0.0/0
+          Description: Kubernetes API server
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP for Ingress
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS for Ingress
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub 'k8s-student-${NeptunCode}-sg'
+
+  # IAM Role for EC2 (using LabRole for AWS Learner Lab compatibility)
+  StudentInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - LabRole
+
+  # EC2 Instance
+  StudentK3sInstance:
+    Type: AWS::EC2::Instance
+    DependsOn:
+      - StudentPublicRoute
+    Properties:
+      ImageId: !Sub '{{resolve:ssm:/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id}}'
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref StudentInstanceProfile
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref StudentSecurityGroup
+          SubnetId: !Ref StudentPublicSubnet
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 20
+            VolumeType: gp3
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: !Sub 'k8s-student-${NeptunCode}'
+        - Key: NeptunCode
+          Value: !Ref NeptunCode
+        - Key: Task
+          Value: !Ref TaskSelection
+        - Key: AutoShutdown
+          Value: '4h'
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/bin/bash
+            set -e
+            exec > >(tee /var/log/user-data.log)
+            exec 2>&1
+
+            echo "=== K8s Assessment Framework - Student Environment Setup ==="
+            echo "Neptun Code: ${NeptunCode}"
+            echo "Task: ${TaskSelection}"
+            echo "Task Name: ${TaskName}"
+
+            # Update system
+            apt-get update
+            apt-get install -y curl wget git jq
+
+            # Install K3s
+            echo "Installing K3s..."
+            curl -sfL https://get.k3s.io | sh -s - \
+              --write-kubeconfig-mode 644 \
+              --disable traefik \
+              --disable servicelb
+
+            # Wait for K3s to be ready
+            echo "Waiting for K3s to be ready..."
+            sleep 30
+            until kubectl get nodes 2>/dev/null; do
+              echo "Waiting for K3s..."
+              sleep 5
+            done
+
+            # Install Kyverno
+            echo "Installing Kyverno..."
+            kubectl create -f https://github.com/kyverno/kyverno/releases/download/v1.10.0/install.yaml
+
+            # Wait for Kyverno to be ready
+            echo "Waiting for Kyverno to be ready..."
+            kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kyverno -n kyverno --timeout=300s
+
+            # Create service account for remote evaluation
+            echo "Creating service account for remote evaluation..."
+            kubectl create serviceaccount evaluator-sa -n default
+            kubectl create clusterrolebinding evaluator-sa-binding \
+              --clusterrole=cluster-admin \
+              --serviceaccount=default:evaluator-sa
+
+            # Get service account token
+            kubectl apply -f - <<EOF
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: evaluator-sa-token
+              namespace: default
+              annotations:
+                kubernetes.io/service-account.name: evaluator-sa
+            type: kubernetes.io/service-account-token
+            EOF
+
+            # Wait for token to be created
+            sleep 5
+
+            # Store cluster info for evaluation
+            KUBE_TOKEN=$(kubectl get secret evaluator-sa-token -n default -o jsonpath='{.data.token}' | base64 -d)
+            KUBE_API=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
+            PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+
+            # Store credentials in home directory
+            mkdir -p /home/ubuntu/.kube-assessment
+            cat > /home/ubuntu/.kube-assessment/cluster-info.json <<EOFCLUSTER
+            {
+              "neptun_code": "${NeptunCode}",
+              "task_id": "${TaskSelection}",
+              "kube_api": "$KUBE_API",
+              "kube_token": "$KUBE_TOKEN",
+              "public_ip": "$PUBLIC_IP"
+            }
+            EOFCLUSTER
+
+            chown -R ubuntu:ubuntu /home/ubuntu/.kube-assessment
+            chmod 600 /home/ubuntu/.kube-assessment/cluster-info.json
+
+            # Clone assessment framework repository
+            echo "Setting up task workspace..."
+            cd /home/ubuntu
+            git clone https://github.com/taha2samy/k8s-assessment-framework.git k8s-workspace
+            cd k8s-workspace
+
+            # Create student tools directory
+            mkdir -p /home/ubuntu/student-tools
+
+            # Create evaluation request script
+            cat > /home/ubuntu/student-tools/request-evaluation.sh <<'EOFEVAL'
+            #!/bin/bash
+            set -e
+
+            TASK_ID="$1"
+            if [ -z "$TASK_ID" ]; then
+                echo "Usage: $0 <task-id>"
+                echo "Example: $0 task-01"
+                exit 1
+            fi
+
+            echo "=== Requesting Evaluation for $TASK_ID ==="
+
+            # Load cluster info
+            CLUSTER_INFO="/home/ubuntu/.kube-assessment/cluster-info.json"
+            if [ ! -f "$CLUSTER_INFO" ]; then
+                echo "Error: Cluster info not found"
+                exit 1
+            fi
+
+            NEPTUN_CODE=$(jq -r '.neptun_code' "$CLUSTER_INFO")
+            KUBE_API=$(jq -r '.kube_api' "$CLUSTER_INFO")
+            KUBE_TOKEN=$(jq -r '.kube_token' "$CLUSTER_INFO")
+            PUBLIC_IP=$(jq -r '.public_ip' "$CLUSTER_INFO")
+
+            # Prepare request payload
+            PAYLOAD=$(jq -n \
+              --arg neptun "$NEPTUN_CODE" \
+              --arg task "$TASK_ID" \
+              --arg api "$KUBE_API" \
+              --arg token "$KUBE_TOKEN" \
+              --arg ip "$PUBLIC_IP" \
+              '{
+                neptun_code: $neptun,
+                task_id: $task,
+                kube_api_url: $api,
+                service_account_token: $token,
+                public_ip: $ip
+              }')
+
+            # Send request to evaluation endpoint
+            RESPONSE=$(curl -s -X POST "${EvaluationEndpoint}" \
+              -H "Content-Type: application/json" \
+              -H "X-API-Key: ${ApiKey}" \
+              -d "$PAYLOAD")
+
+            echo "$RESPONSE" | jq '.'
+
+            # Save response
+            echo "$RESPONSE" > "/home/ubuntu/evaluation-results-$TASK_ID-$(date +%s).json"
+            echo ""
+            echo "Results saved to: /home/ubuntu/evaluation-results-$TASK_ID-$(date +%s).json"
+            EOFEVAL
+
+            # Create submission script
+            cat > /home/ubuntu/student-tools/submit-final.sh <<'EOFSUBMIT'
+            #!/bin/bash
+            set -e
+
+            TASK_ID="$1"
+            if [ -z "$TASK_ID" ]; then
+                echo "Usage: $0 <task-id>"
+                echo "Example: $0 task-01"
+                exit 1
+            fi
+
+            echo "=== Submitting Final Results for $TASK_ID ==="
+            echo ""
+            echo "WARNING: This will submit your current solution as final."
+            read -p "Are you sure? (yes/no): " CONFIRM
+
+            if [ "$CONFIRM" != "yes" ]; then
+                echo "Submission cancelled."
+                exit 0
+            fi
+
+            # Load cluster info
+            CLUSTER_INFO="/home/ubuntu/.kube-assessment/cluster-info.json"
+            if [ ! -f "$CLUSTER_INFO" ]; then
+                echo "Error: Cluster info not found"
+                exit 1
+            fi
+
+            NEPTUN_CODE=$(jq -r '.neptun_code' "$CLUSTER_INFO")
+            KUBE_API=$(jq -r '.kube_api' "$CLUSTER_INFO")
+            KUBE_TOKEN=$(jq -r '.kube_token' "$CLUSTER_INFO")
+            PUBLIC_IP=$(jq -r '.public_ip' "$CLUSTER_INFO")
+
+            # Prepare submission payload
+            PAYLOAD=$(jq -n \
+              --arg neptun "$NEPTUN_CODE" \
+              --arg task "$TASK_ID" \
+              --arg api "$KUBE_API" \
+              --arg token "$KUBE_TOKEN" \
+              --arg ip "$PUBLIC_IP" \
+              '{
+                neptun_code: $neptun,
+                task_id: $task,
+                kube_api_url: $api,
+                service_account_token: $token,
+                public_ip: $ip,
+                submission_type: "final"
+              }')
+
+            # Send submission request
+            RESPONSE=$(curl -s -X POST "${SubmissionEndpoint}" \
+              -H "Content-Type: application/json" \
+              -H "X-API-Key: ${ApiKey}" \
+              -d "$PAYLOAD")
+
+            echo "$RESPONSE" | jq '.'
+
+            if echo "$RESPONSE" | jq -e '.success' > /dev/null 2>&1; then
+                echo ""
+                echo "✅ Submission successful!"
+                echo "Your results have been submitted to the instructor."
+            else
+                echo ""
+                echo "❌ Submission failed. Please check the error message above."
+            fi
+            EOFSUBMIT
+
+            chmod +x /home/ubuntu/student-tools/*.sh
+            chown -R ubuntu:ubuntu /home/ubuntu/student-tools
+
+            # Create welcome message
+            cat > /home/ubuntu/welcome.txt <<EOFWELCOME
+            ╔══════════════════════════════════════════════════════════════╗
+            ║   Kubernetes Assessment Framework - Student Environment      ║
+            ╚══════════════════════════════════════════════════════════════╝
+
+            Welcome, ${NeptunCode}!
+
+            Your Task: ${TaskSelection} - ${TaskName}
+
+            📁 Workspace Location:
+               ~/k8s-workspace/tasks/${TaskSelection}/
+
+            🛠️  Available Tools:
+               ~/student-tools/request-evaluation.sh <task-id>
+               ~/student-tools/submit-final.sh <task-id>
+
+            📋 Quick Start:
+               1. cd ~/k8s-workspace/tasks/${TaskSelection}
+               2. cat README.md
+               3. Create your solution YAML files
+               4. kubectl apply -f your-solution.yaml
+               5. ~/student-tools/request-evaluation.sh ${TaskSelection}
+               6. Review results and iterate
+               7. ~/student-tools/submit-final.sh ${TaskSelection}
+
+            ⏰ Environment Lifetime: 4 hours
+               Save your work regularly!
+
+            🔍 Useful Commands:
+               kubectl get all                    # View all resources
+               kubectl describe <resource>        # Detailed info
+               kubectl logs <pod-name>            # View logs
+               kubectl get policyreport -A        # Check Kyverno results
+
+            Good luck with your assessment!
+            EOFWELCOME
+
+            chown ubuntu:ubuntu /home/ubuntu/welcome.txt
+
+            # Display welcome message on login
+            echo "cat /home/ubuntu/welcome.txt" >> /home/ubuntu/.bashrc
+
+            # Set up auto-shutdown after 4 hours
+            echo "sudo shutdown -h +240" | at now
+
+            echo "=== Setup Complete ==="
+            echo "Environment ready for ${NeptunCode}"
+          - TaskName: !FindInMap [TaskConfiguration, !Ref TaskSelection, Name]
+
+Outputs:
+  PublicIP:
+    Description: Public IP address of your K8s environment
+    Value: !GetAtt StudentK3sInstance.PublicIp
+    Export:
+      Name: !Sub '${AWS::StackName}-PublicIP'
+
+  SSHCommand:
+    Description: SSH command to connect to your environment
+    Value: !Sub 'ssh -i ~/.ssh/${KeyPairName}.pem ubuntu@${StudentK3sInstance.PublicIp}'
+
+  TaskAssignment:
+    Description: Your assigned task
+    Value: !Sub
+      - '${TaskSelection}: ${TaskName}'
+      - TaskName: !FindInMap [TaskConfiguration, !Ref TaskSelection, Name]
+
+  WorkspaceLocation:
+    Description: Location of your task workspace
+    Value: !Sub
+      - '~/k8s-workspace/tasks/${TaskSelection}/'
+      - {}
+
+  EvaluationCommand:
+    Description: Command to request evaluation
+    Value: !Sub '~/student-tools/request-evaluation.sh ${TaskSelection}'
+
+  SubmissionCommand:
+    Description: Command to submit final results
+    Value: !Sub '~/student-tools/submit-final.sh ${TaskSelection}'
+
+  EnvironmentLifetime:
+    Description: Auto-shutdown time
+    Value: '4 hours from creation'
