@@ -1,412 +1,277 @@
-# 🎓 Kubernetes Assessment Framework
+# Kubernetes Assessment Framework
 
-A complete solution for automated Kubernetes assessment with remote evaluation capabilities. This framework enables instructors to deploy evaluation infrastructure in their AWS account while students work in separate AWS Learner Lab accounts.
+A cross-account Kubernetes assessment system for automated student evaluation using AWS Lambda, K3s, and CloudFormation.
 
-## 🌟 Key Features
+## Overview
 
-- ✅ **One-Command Setup** - Single script deploys complete instructor infrastructure
-- ✅ **Cross-Account Evaluation** - Instructor and student AWS accounts are completely separate
-- ✅ **Remote Assessment** - Lambda functions evaluate student clusters from instructor account
-- ✅ **Secure API Authentication** - API key-based authentication for all operations
-- ✅ **One-Click Student Deployment** - CloudFormation template with pre-configured endpoints
-- ✅ **Automatic Kyverno Integration** - Policy validation built into student environments
-- ✅ **Auto-Cleanup** - Student environments shut down after 4 hours
-- ✅ **Professional Tools** - Real K3s, Kyverno policies, industry practices
+This framework enables instructors to deploy a complete Kubernetes assessment infrastructure where students can:
+- Deploy their own K3s cluster in AWS Learner Lab
+- Complete assigned Kubernetes tasks in isolated namespaces
+- Request automated evaluation of their work via remote Lambda functions
+- Submit final results for instructor grading
 
-## 🏗️ Architecture
+**Architecture**: Cross-account setup where instructor's Lambda functions remotely evaluate student K3s clusters via Kubernetes API.
 
-```
-┌─────────────────────────┐    ┌─────────────────────────────┐
-│     Instructor Account  │    │      Student Account        │
-│                         │    │                             │
-│  ┌─────────────────────┐│    │  ┌─────────────────────────┐│
-│  │ S3 Bucket           ││    │  │ CloudFormation Template ││
-│  │ k8s-eval-results    ││    │  │ (Quick Deploy Link)     ││
-│  └─────────────────────┘│    │  └─────────────────────────┘│
-│                         │    │              │               │
-│  ┌─────────────────────┐│    │              ▼               │
-│  │ Lambda Functions    ││    │  ┌─────────────────────────┐│
-│  │ - Evaluator         ││◄───┤  │ Student EC2 + k3s       ││
-│  │ - Submission        ││    │  │ - Isolated environment  ││
-│  └─────────────────────┘│    │  │ - Pre-configured tools  ││
-└─────────────────────────┘    │  └─────────────────────────┘│
-                               └─────────────────────────────┘
-```
+## Key Features
 
-## 📁 Repository Structure
+- ✅ **Fully Automated**: One-command deployment for instructors, zero manual configuration for students
+- ✅ **Cross-Account**: Instructor and students use separate AWS accounts (AWS Learner Lab compatible)
+- ✅ **Remote Evaluation**: Lambda functions connect to student clusters via service account tokens
+- ✅ **Task Isolation**: Each task uses its own Kubernetes namespace
+- ✅ **Secure**: API key authentication, private S3 storage for results
+- ✅ **Scalable**: Support for multiple students and tasks
+- ✅ **Policy Enforcement**: Kyverno policies installed for advanced scenarios
 
-```
-k8s-assessment-framework/
-├── README.md                           # This comprehensive guide
-├── cloudformation/
-│   └── unified-student-template.yaml   # Main CloudFormation template
-├── evaluation/lambda/
-│   └── evaluator.py                    # Evaluation Lambda function
-├── submission/lambda/
-│   └── submitter.py                    # Submission Lambda function
-├── instructor-tools/
-│   ├── deploy-complete-setup.sh        # ⭐ ONE-COMMAND SETUP (run this!)
-│   └── view-results.sh                 # View student submissions
-├── tasks/
-│   ├── task-01/                        # Deploy NGINX Web Application
-│   ├── task-02/                        # Service and Ingress Configuration
-│   └── task-03/                        # ConfigMaps and Secrets
-└── legacy-scripts/                     # Archived old scripts
-```
+## Quick Start
 
-## 🚀 Quick Start
+### For Instructors
 
-### For Instructors (One-time Setup - 5 Minutes)
+1. **Prerequisites**:
+   - Active AWS Learner Lab account with admin access
+   - AWS CLI configured with credentials
+   - Python 3.x installed
 
-Run ONE command:
-
-```bash
-cd instructor-tools
-./deploy-complete-setup.sh
-```
-
-This single script will:
-1. ✅ Create S3 buckets (results + templates)
-2. ✅ Deploy Lambda functions (evaluation + submission)
-3. ✅ Generate API key for authentication
-4. ✅ Configure CloudFormation template
-5. ✅ Upload template to public S3
-6. ✅ Create student landing page
-7. ✅ Display student deployment link
-
-You'll get output like:
-```
-Student Landing Page: https://k8s-assessment-templates.s3.us-east-1.amazonaws.com/index.html
-Direct Deploy: https://us-east-1.console.aws.amazon.com/cloudformation/...
-```
-
-**Share the landing page URL with your students** - that's it!
-
-### For Students (One-Click Deployment)
-
-1. **Visit landing page** provided by instructor
-2. **Click "Deploy My Environment"** button
-3. **Enter Neptun Code** (6 characters, e.g., `ABC123`)
-4. **Select assigned task** from dropdown
-5. **Click "Create Stack"** and wait 5-10 minutes
-6. **Get SSH command** from "Outputs" tab
-7. **Connect and work**:
+2. **Deploy Infrastructure** (one command):
    ```bash
-   ssh -i ~/Downloads/labsuser.pem ubuntu@<PUBLIC-IP>
+   cd instructor-tools
+   ./deploy-complete-setup.sh
+   ```
 
-   # Welcome message shows you everything
-   cat ~/welcome.txt
+3. **Share Landing Page** with students:
+   ```
+   https://k8s-assessment-templates.s3.us-east-1.amazonaws.com/index.html
+   ```
 
-   # Navigate to workspace
-   cd ~/k8s-workspace/tasks/task-01
-   cat README.md
+4. **View Results**:
+   ```bash
+   ./view-results.sh
+   ```
 
-   # Create solution
-   nano solution.yaml
-   kubectl apply -f solution.yaml
+### For Students
 
-   # Request evaluation (can run multiple times)
+1. Visit the landing page URL provided by instructor
+2. Click "Deploy My Environment"
+3. Enter your Neptun Code (e.g., TEST01)
+4. Select your assigned task (task-01, task-02, or task-03)
+5. Wait for CloudFormation stack creation (~5-10 minutes)
+6. SSH to your EC2 instance
+7. Complete the task and run:
+   ```bash
    ~/student-tools/request-evaluation.sh task-01
-
-   # When satisfied, submit final
    ~/student-tools/submit-final.sh task-01
    ```
 
-## 📋 What Students Get
+## Repository Structure
 
-### Environment Includes:
-- ✅ **K3s Cluster**: Lightweight Kubernetes (single-node)
-- ✅ **Kyverno**: Policy engine pre-installed and configured
-- ✅ **Task Workspace**: `/home/ubuntu/k8s-workspace/` with task files
-- ✅ **Evaluation Tools**: Scripts to request evaluation and submit results
-- ✅ **Welcome Guide**: Comprehensive instructions in `~/welcome.txt`
-- ✅ **Kubectl**: Pre-configured and ready to use
-- ✅ **Auto-Cleanup**: Environment deletes after 4 hours
-
-### What's Pre-Configured:
-- Service account for remote evaluation
-- Cluster API accessible from instructor account
-- Evaluation and submission endpoints embedded
-- API key authentication built-in
-- Git repository cloned with all tasks
-
-## 📊 Available Tasks
-
-### Task 01: Deploy NGINX Web Application
-**Objective**: Create a scalable NGINX deployment with resource limits
-
-**What Students Learn**:
-- Kubernetes Deployments
-- Replica management
-- Resource limits (CPU/Memory)
-- Labels and selectors
-
-**Evaluation Checks**:
-- Deployment exists
-- Correct number of replicas (3)
-- Resource limits configured
-- All pods running healthy
-
-### Task 02: Service and Ingress Configuration
-**Objective**: Expose applications using services and ingress
-
-**What Students Learn**:
-- ClusterIP vs NodePort vs LoadBalancer
-- Service selectors
-- Ingress resources
-- Path-based routing
-
-**Evaluation Checks**:
-- Services created correctly
-- Proper port mappings
-- Ingress configured
-- Endpoints reachable
-
-### Task 03: ConfigMaps and Secrets
-**Objective**: Manage configuration and sensitive data
-
-**What Students Learn**:
-- ConfigMap creation and usage
-- Secret encoding (base64)
-- Environment variables
-- Volume mounts
-
-**Evaluation Checks**:
-- ConfigMap exists
-- Secret properly encoded
-- Mounted in pods
-- Application uses configuration
-
-## 💰 Cost Structure
-
-### Per Student (4-hour session):
-- **EC2 t3.medium**: ~$0.16
-- **Lambda executions**: ~$0.01
-- **S3 storage**: Negligible
-- **Total per student**: ~$0.17
-
-### For 50 students: ~$8.50 total cost
-
-## 🔒 Security Features
-
-### What Students Get:
-- ✅ Pre-configured k3s cluster
-- ✅ Task requirements and instructions
-- ✅ Evaluation and submission tools
-- ✅ Isolated personal environment
-
-### What Students Cannot Access:
-- ❌ Evaluation logic or Lambda code
-- ❌ Scoring criteria and algorithms
-- ❌ Reference solutions
-- ❌ Other students' environments
-- ❌ Instructor infrastructure
-
-## 🛠️ Viewing Results (Instructors)
-
-### Interactive Results Viewer
-
-```bash
-cd instructor-tools
-./view-results.sh
+```
+k8s-assessment-framework/
+├── cloudformation/
+│   └── unified-student-template.yaml          # Student CloudFormation template
+├── evaluation/
+│   └── lambda/
+│       ├── evaluator.py                       # Evaluation Lambda function
+│       └── requirements.txt                   # Python dependencies (PyYAML, requests)
+├── submission/
+│   └── lambda/
+│       └── submitter.py                       # Submission Lambda function
+├── instructor-tools/
+│   ├── deploy-complete-setup.sh               # Main deployment script
+│   ├── view-results.sh                        # View student results
+│   ├── test-complete-deployment.sh            # Test infrastructure
+│   ├── check-prerequisites.sh                 # Pre-deployment checks
+│   └── reupload-template.sh                   # Quick template re-upload
+├── tasks/
+│   └── task-01/
+│       └── README.md                          # Task description
+├── policies/
+│   └── (Kyverno policy examples)
+├── README.md                                  # This file
+├── FULL_SETUP_GUIDE.md                        # Complete testing guide
+└── LICENSE
 ```
 
-Options:
-1. View all submissions
-2. Filter by Neptun Code
-3. Filter by Task ID
-4. View latest evaluations
-5. Download all results (with summary report)
+## How It Works
 
-### Direct S3 Access
+### Infrastructure (Instructor Side)
 
-```bash
-# List all submissions
-aws s3 ls s3://k8s-eval-results/submissions/ --recursive
+1. **S3 Buckets**:
+   - `k8s-assessment-templates`: Stores CloudFormation template and landing page (public read)
+   - `k8s-eval-results`: Stores evaluation and submission results (private)
 
-# Download specific result
-aws s3 cp s3://k8s-eval-results/submissions/ABC123/task-01/final.json -
+2. **Lambda Functions**:
+   - **Evaluator**: Remotely connects to student K3s clusters, validates deployments, calculates scores
+   - **Submitter**: Validates eval tokens and stores final submissions
 
-# Download everything
-aws s3 sync s3://k8s-eval-results/ ./results/
+3. **API Authentication**: Randomly generated API key shared via CloudFormation parameters
+
+### Student Environment (Auto-Created)
+
+Each student stack creates:
+- VPC with public subnet
+- EC2 instance (t3.medium) with K3s cluster
+- Kyverno policy engine
+- Task-specific namespace
+- Service account with cluster-admin role (for remote evaluation)
+- Student tools (evaluation and submission scripts)
+- Task workspace with README
+- Auto-shutdown after 4 hours
+
+### Evaluation Flow
+
+1. Student completes task (creates Kubernetes resources)
+2. Student runs `request-evaluation.sh task-01`
+3. Script sends cluster endpoint and service account token to evaluation Lambda
+4. Lambda remotely connects to student's K3s API
+5. Lambda validates deployment, replicas, images, labels, pods, resources
+6. Lambda calculates score and returns eval_token
+7. Lambda stores results in S3: `evaluations/{student_id}/{task_id}/{eval_token}.json`
+
+### Submission Flow
+
+1. Student reviews evaluation results
+2. Student runs `submit-final.sh task-01`
+3. Script runs evaluation again to get latest eval_token
+4. Script sends eval_token to submission Lambda
+5. Lambda validates eval_token exists in S3
+6. Lambda creates final submission with timestamp
+7. Lambda stores in S3: `submissions/{student_id}/{task_id}/{timestamp}.json`
+
+## S3 Storage Structure
+
+```
+k8s-eval-results/
+├── evaluations/
+│   └── {student_id}/          # e.g., TEST01
+│       └── {task_id}/         # e.g., task-01
+│           └── {eval_token}.json
+└── submissions/
+    └── {student_id}/
+        └── {task_id}/
+            └── {timestamp}.json
 ```
 
-### Monitor Active Environments
+## Scoring System (Task-01 Example)
 
+| Criterion | Points | Description |
+|-----------|--------|-------------|
+| deployment_exists | 20 | Deployment "nginx-web" exists in task namespace |
+| replicas_correct | 15 | Deployment has 2 replicas |
+| image_correct | 15 | Uses nginx image |
+| resources_set | 20 | CPU and memory limits configured |
+| labels_correct | 10 | Pod template has app=nginx label |
+| pod_count_correct | 10 | Exactly 2 pods exist |
+| pods_running | 10 | All 2 pods are Running |
+| **Total** | **100** | |
+
+## Key Technical Details
+
+### API Key Consistency
+
+The deployment script checks if `API_KEY.txt` exists and reuses it. This ensures:
+- Lambda functions use the same key across deployments
+- Student stacks deployed before redeployment continue to work
+- No manual key synchronization needed
+
+### Public IP for Cluster Access
+
+Student K3s clusters use public IP instead of localhost:
 ```bash
-# List all student stacks
-aws cloudformation list-stacks \
-  --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE \
-  --query 'StackSummaries[?starts_with(StackName, `k8s-student-`)].{Name:StackName,Status:StackStatus,Created:CreationTime}'
-
-# Cleanup specific stack
-aws cloudformation delete-stack --stack-name k8s-student-ABC123
+PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+KUBE_API="https://$PUBLIC_IP:6443"
 ```
 
-## 🔧 Customization
+### Task-Specific Namespaces
+
+Each task uses its own namespace for isolation:
+- task-01 → namespace: task-01
+- task-02 → namespace: task-02
+- task-03 → namespace: task-03
+
+### Label Validation
+
+The evaluator checks **pod template labels** (not deployment metadata labels):
+```python
+pod_template_labels = deployment.get('spec', {}).get('template', {}).get('metadata', {}).get('labels', {})
+results['labels_correct'] = (pod_template_labels.get('app') == 'nginx')
+```
+
+## AWS Learner Lab Constraints
+
+- **Session Duration**: 4 hours (all resources deleted after)
+- **EC2 Instance**: t3.medium (2 vCPU, 4 GB RAM)
+- **Lambda**: 512 MB memory, 300s timeout
+- **Budget**: $50 total per learner
+
+Students must complete work within session limits.
+
+## Redeployment After Session Expires
+
+When AWS Learner Lab session expires:
+
+1. Start new session
+2. Configure AWS CLI with new credentials
+3. Run `./deploy-complete-setup.sh` (reuses API key if available)
+4. Share new landing page URL with students
+5. Students delete old stack and deploy new one
+
+## Security Considerations
+
+- **API Key**: 32-character random hex, validated on every request
+- **S3 Access**: Templates bucket public (required), results bucket private
+- **Lambda URLs**: Public endpoints with application-level auth (IAM not available in Learner Lab)
+- **K3s Certificates**: Self-signed, SSL verification disabled (insecure-skip-tls-verify)
+- **Service Account**: cluster-admin role (required for full evaluation)
+
+## Extending the Framework
 
 ### Adding New Tasks
 
-1. Create task directory:
-```bash
-mkdir tasks/task-04
-```
+1. Edit `cloudformation/unified-student-template.yaml`
+2. Add to `TaskConfiguration` mapping (lines 97-109)
+3. Add to `TaskSelection` allowed values
+4. Add task README in UserData section (lines 328-418)
+5. Create task directory: `tasks/task-04/README.md`
+6. Update evaluator.py if task requires different validation logic
+7. Redeploy: `./reupload-template.sh`
 
-2. Add task files:
-```
-tasks/task-04/
-├── README.md           # Student instructions
-├── solution.yaml       # Reference solution
-└── policy.yaml         # Kyverno validation policy (optional)
-```
+### Modifying Evaluation Logic
 
-3. Update CloudFormation template (`cloudformation/unified-student-template.yaml`):
-```yaml
-Mappings:
-  TaskConfiguration:
-    task-04:
-      Name: "Your New Task Name"
-      Description: "Task description"
-      GitHubPath: "tasks/task-04"
+1. Edit `evaluation/lambda/evaluator.py`
+2. Update `evaluate_task()` function for your criteria
+3. Update `calculate_score()` function for point allocation
+4. Redeploy: `./deploy-complete-setup.sh`
 
-Parameters:
-  TaskSelection:
-    AllowedValues:
-      - task-01
-      - task-02
-      - task-03
-      - task-04  # Add this
-```
+### Custom Policies
 
-4. Update evaluation Lambda (`evaluation/lambda/evaluator.py`) to handle task-04
+Place Kyverno policies in `policies/` directory and add to CloudFormation UserData for automatic installation.
 
-5. Redeploy:
-```bash
-cd instructor-tools
-./deploy-complete-setup.sh
-```
+## Troubleshooting
 
-### Changing Environment Lifetime
+**Lambda 502 Error**: Run `./deploy-complete-setup.sh` to redeploy with dependencies
 
-Edit `cloudformation/unified-student-template.yaml`:
-```bash
-# Find line with: echo "sudo shutdown -h +240" | at now
-# Change +240 (minutes) to desired duration
-# +360 = 6 hours, +480 = 8 hours, etc.
-```
+**API Key Mismatch**: Check `API_KEY.txt` matches Lambda environment variable
 
-Redeploy template after changes.
+**Cluster Connection Failed**: Verify security group allows inbound on port 6443
 
-## 🚨 Troubleshooting
+**Namespace Not Found**: Ensure student deployed resources to task-specific namespace
 
-### Student Issues
+**Stack Creation Failed**: Check CloudFormation events and UserData logs: `/var/log/user-data.log`
 
-**"Stack creation failed"**
-- Ensure AWS Learner Lab session is active
-- Check that `vockey` key pair exists in EC2 console
-- Review CloudFormation Events tab for specific error
+## Documentation
 
-**"Can't SSH into instance"**
-- Wait 1-2 minutes after stack shows CREATE_COMPLETE
-- Verify using correct SSH key (labsuser.pem from Learner Lab)
-- Check security group allows SSH on port 22
+- `FULL_SETUP_GUIDE.md` - Complete deployment and testing guide with step-by-step instructions
+- `tasks/task-01/README.md` - Example task description (students see this)
 
-**"Evaluation request fails"**
-- Verify K3s is running: `systemctl status k3s`
-- Check Kyverno is ready: `kubectl get pods -n kyverno`
-- Wait 2-3 minutes after instance boot for all services
+## License
 
-**"Unauthorized - Invalid API Key"**
-- This means template has wrong API key
-- Contact instructor to redeploy template
+See [LICENSE](LICENSE) file for details.
 
-### Instructor Issues
+## Contributing
 
-**"Could not set public bucket policy"**
-- This is normal in AWS Learner Lab
-- The deploy script handles this automatically
-- Bucket-level Block Public Access is disabled separately
-
-**"Lambda deployment fails"**
-- Check IAM role exists: `aws iam get-role --role-name LabRole`
-- Verify you're in correct region (us-east-1)
-- Check Lambda service limits
-
-**"Students can't access template"**
-- Test template URL in browser: `https://k8s-assessment-templates.s3.us-east-1.amazonaws.com/unified-student-template.yaml`
-- Check bucket policy: `aws s3api get-bucket-policy --bucket k8s-assessment-templates`
-- Verify Block Public Access is disabled for bucket
-
-### Debug Commands
-
-```bash
-# Check Lambda logs
-aws logs tail /aws/lambda/k8s-evaluation-function --follow
-aws logs tail /aws/lambda/k8s-submission-function --follow
-
-# Test evaluation endpoint
-curl -X POST $(cat instructor-tools/EVALUATION_ENDPOINT.txt) \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $(cat instructor-tools/API_KEY.txt)" \
-  -d '{"test": true}'
-
-# Check S3 buckets
-aws s3 ls s3://k8s-eval-results/
-aws s3 ls s3://k8s-assessment-templates/
-
-# View student K3s status (from student EC2)
-systemctl status k3s
-kubectl get nodes
-kubectl get pods -A
-```
-
-## 📚 Additional Resources
-
-- [K3s Documentation](https://docs.k3s.io/)
-- [Kyverno Documentation](https://kyverno.io/docs/)
-- [AWS CloudFormation User Guide](https://docs.aws.amazon.com/cloudformation/)
-- [AWS Lambda Function URLs](https://docs.aws.amazon.com/lambda/latest/dg/lambda-urls.html)
-- [Kubernetes Documentation](https://kubernetes.io/docs/)
-
-## 🤝 Contributing
-
-This framework is part of a thesis project. Contributions welcome!
-
-1. Fork the repository
-2. Create feature branch: `git checkout -b feature/amazing-feature`
-3. Test your changes with `deploy-complete-setup.sh`
-4. Commit changes: `git commit -m 'Add amazing feature'`
-5. Push to branch: `git push origin feature/amazing-feature`
-6. Open Pull Request
-
-## 📄 License
-
-This project is part of academic work. Please cite appropriately if used in research or teaching.
-
-## 👤 Author
-
-**Taha Samy**
-- Thesis: Remote Kubernetes Assessment Framework
-- GitHub: [@taha2samy](https://github.com/taha2samy)
-
-## 🙏 Acknowledgments
-
-- Professor's K3s CloudFormation template for architectural inspiration
-- AWS Learner Lab for providing educational AWS infrastructure
-- Kyverno project for policy validation capabilities
-- K3s project for lightweight Kubernetes distribution
+This is a thesis project. For issues or feature requests, please open a GitHub issue.
 
 ---
 
-**Version**: 2.0 (Unified)
-**Last Updated**: October 2024
-**Status**: ✅ Production Ready
+**Status**: Production Ready ✅
 
----
-
-## 🚀 Quick Start Reminder
-
-**Instructors**: Run `./instructor-tools/deploy-complete-setup.sh`
-**Students**: Visit the landing page URL provided by instructor
-
-That's it! 🎉
+Last tested: 2025-10-22 with complete end-to-end workflow verification.
