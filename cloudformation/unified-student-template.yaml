@@ -283,6 +283,10 @@ Resources:
             echo "Waiting for Kyverno to be ready..."
             kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kyverno -n kyverno --timeout=300s || true
 
+            # Create task namespace
+            echo "Creating task namespace: ${TaskSelection}..."
+            kubectl create namespace ${TaskSelection}
+
             # Create service account for remote evaluation
             echo "Creating service account for remote evaluation..."
             kubectl create serviceaccount evaluator-sa -n default
@@ -331,7 +335,7 @@ Resources:
             mkdir -p /home/ubuntu/k8s-workspace/tasks/${TaskSelection}
 
             # Create task README
-            cat > /home/ubuntu/k8s-workspace/tasks/${TaskSelection}/README.md <<'EOFTASKREADME'
+            cat > /home/ubuntu/k8s-workspace/tasks/${TaskSelection}/README.md <<EOFTASKREADME
             # Task 01: Deploy NGINX Web Application
 
             ## Objective
@@ -341,7 +345,7 @@ Resources:
 
             1. **Deployment**:
                - Name: \`nginx-web\`
-               - Namespace: \`default\`
+               - Namespace: \`${TaskSelection}\`
                - Replicas: 2
                - Container image: \`nginx:latest\`
                - Container port: 80
@@ -381,7 +385,7 @@ Resources:
             kind: Deployment
             metadata:
               name: nginx-web
-              namespace: default
+              namespace: ${TaskSelection}
             spec:
               replicas: 2
               selector:
@@ -402,7 +406,7 @@ Resources:
             kind: Service
             metadata:
               name: nginx-service
-              namespace: default
+              namespace: ${TaskSelection}
             spec:
               type: NodePort
               selector:

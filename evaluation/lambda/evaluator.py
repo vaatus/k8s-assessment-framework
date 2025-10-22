@@ -193,6 +193,7 @@ def test_cluster_connection(kubeconfig_path, task_id):
         urllib3.disable_warnings(InsecureRequestWarning)
 
         headers = {'Authorization': f'Bearer {token}'}
+        # Test connection to task-specific namespace
         response = session.get(f'{server}/api/v1/namespaces/{task_id}',
                               headers=headers, timeout=30)
 
@@ -232,6 +233,7 @@ def evaluate_task(task_id, kubeconfig_path):
         'pod_count_correct': False
     }
 
+    # Each task uses its own namespace
     namespace = task_id
 
     # Read kubeconfig to get server and token
@@ -262,15 +264,15 @@ def evaluate_task(task_id, kubeconfig_path):
             results['deployment_exists'] = True
             deployment = response.json()
 
-            # Check replicas
+            # Check replicas (task-01 requires 2 replicas)
             desired_replicas = deployment.get('spec', {}).get('replicas', 0)
-            results['replicas_correct'] = (desired_replicas == 3)
+            results['replicas_correct'] = (desired_replicas == 2)
 
-            # Check image
+            # Check image (task-01 accepts nginx:latest or any nginx image)
             containers = deployment.get('spec', {}).get('template', {}).get('spec', {}).get('containers', [])
             if containers:
                 image = containers[0].get('image', '')
-                results['image_correct'] = ('nginx:1.25' in image)
+                results['image_correct'] = ('nginx' in image.lower())
 
                 # Check resources
                 resources = containers[0].get('resources', {})
