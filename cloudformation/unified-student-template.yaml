@@ -551,7 +551,7 @@ Resources:
                 exit 1
             fi
 
-            echo "Evaluation token received: \\\${EVAL_TOKEN:0:20}..."
+            echo "Evaluation token received: \\\$(echo \\\$EVAL_TOKEN | cut -c1-20)..."
 
             # Prepare submission payload
             SUBMIT_PAYLOAD=\\\$(jq -n \\
