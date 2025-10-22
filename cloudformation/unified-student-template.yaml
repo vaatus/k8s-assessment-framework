@@ -247,7 +247,7 @@ Resources:
         Fn::Base64: !Sub
           - |
             #!/bin/bash
-            set -e
+            set -x
             exec > >(tee /var/log/user-data.log)
             exec 2>&1
 
@@ -281,7 +281,7 @@ Resources:
 
             # Wait for Kyverno to be ready
             echo "Waiting for Kyverno to be ready..."
-            kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kyverno -n kyverno --timeout=300s
+            kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kyverno -n kyverno --timeout=300s || true
 
             # Create service account for remote evaluation
             echo "Creating service account for remote evaluation..."
