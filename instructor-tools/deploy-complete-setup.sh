@@ -256,12 +256,36 @@ echo ""
 
 cd ../cloudformation
 
-# Update template with endpoints and API key
+# Update template with endpoints and API key using Python for safer substitution
 cp ${TEMPLATE_FILE} ${TEMPLATE_FILE}.tmp
 
-sed -i "/EvaluationEndpoint:/,/Default:/{s|Default:.*|Default: '${EVAL_FUNCTION_URL}'|}" ${TEMPLATE_FILE}.tmp
-sed -i "/SubmissionEndpoint:/,/Default:/{s|Default:.*|Default: '${SUBMIT_FUNCTION_URL}'|}" ${TEMPLATE_FILE}.tmp
-sed -i "/ApiKey:/,/Default:/{s|Default:.*|Default: '${API_KEY}'|}" ${TEMPLATE_FILE}.tmp
+python3 << EOF
+import re
+
+with open('${TEMPLATE_FILE}.tmp', 'r') as f:
+    content = f.read()
+
+# Replace only the specific Default values we need to change
+# Use more precise regex to avoid matching TaskSelection
+content = re.sub(
+    r'(EvaluationEndpoint:\s+Type:\s+String\s+Default:\s+)\'\'',
+    r"\1'${EVAL_FUNCTION_URL}'",
+    content
+)
+content = re.sub(
+    r'(SubmissionEndpoint:\s+Type:\s+String\s+Default:\s+)\'\'',
+    r"\1'${SUBMIT_FUNCTION_URL}'",
+    content
+)
+content = re.sub(
+    r'(ApiKey:\s+Type:\s+String\s+NoEcho:\s+true\s+Default:\s+)\'\'',
+    r"\1'${API_KEY}'",
+    content
+)
+
+with open('${TEMPLATE_FILE}.tmp', 'w') as f:
+    f.write(content)
+EOF
 
 # Upload template to S3
 echo "Uploading CloudFormation template to S3..."
