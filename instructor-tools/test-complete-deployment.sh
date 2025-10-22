@@ -1,5 +1,6 @@
 #!/bin/bash
-set -e
+# Don't exit on error - we want to continue testing even if some tests fail
+set +e
 
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║     Kubernetes Assessment Framework - Complete Test Suite    ║"
@@ -65,14 +66,16 @@ else
 fi
 
 # Check AWS credentials
-if aws sts get-caller-identity &> /dev/null; then
-    ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-    USER_ARN=$(aws sts get-caller-identity --query Arn --output text)
+echo "Checking AWS credentials..."
+if timeout 10 aws sts get-caller-identity &> /dev/null; then
+    ACCOUNT_ID=$(timeout 10 aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "unknown")
+    USER_ARN=$(timeout 10 aws sts get-caller-identity --query Arn --output text 2>/dev/null || echo "unknown")
     pass_test "AWS credentials valid"
     echo "   Account ID: $ACCOUNT_ID"
     echo "   User ARN: $USER_ARN"
 else
-    fail_test "AWS credentials not configured"
+    fail_test "AWS credentials not configured or timed out"
+    echo "Please configure AWS CLI or check your credentials"
     exit 1
 fi
 

@@ -2,10 +2,22 @@
 
 ## For Instructors: Complete Setup in 5 Minutes
 
-### Step 1: Deploy Infrastructure
+### Step 0: Check Prerequisites (Optional)
 
 ```bash
 cd instructor-tools
+./check-prerequisites.sh
+```
+
+This will verify:
+- AWS CLI is installed
+- AWS credentials are configured
+- You have required permissions
+- Region is set correctly
+
+### Step 1: Deploy Infrastructure
+
+```bash
 ./deploy-complete-setup.sh
 ```
 

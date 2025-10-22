@@ -3,9 +3,15 @@
 ## Instructor Quick Start
 
 ```bash
-# ONE-COMMAND SETUP
+# CHECK PREREQUISITES (optional)
 cd instructor-tools
+./check-prerequisites.sh
+
+# ONE-COMMAND SETUP
 ./deploy-complete-setup.sh
+
+# TEST DEPLOYMENT
+./test-complete-deployment.sh
 
 # VIEW RESULTS
 ./view-results.sh
