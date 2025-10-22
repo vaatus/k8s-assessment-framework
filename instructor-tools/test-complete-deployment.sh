@@ -294,13 +294,12 @@ if [ -f "EVALUATION_ENDPOINT.txt" ] && [ -f "API_KEY.txt" ]; then
         -H "X-API-Key: $API_KEY" \
         -d '{"test": true, "neptun_code": "TEST01", "task_id": "test"}' 2>&1)
 
-    if echo "$EVAL_RESPONSE" | grep -q "error\|statusCode"; then
-        # Check if it's an expected error (like missing cluster credentials)
-        if echo "$EVAL_RESPONSE" | grep -q "kube_api_url"; then
-            pass_test "Evaluation endpoint reachable (validation working)"
-        else
-            warn_test "Evaluation endpoint returned error: $EVAL_RESPONSE"
-        fi
+    if echo "$EVAL_RESPONSE" | grep -q "502\|Bad Gateway\|Internal Server Error"; then
+        fail_test "Lambda returning 502 error (missing dependencies)"
+        echo "   This means the Lambda function is crashing on execution."
+        echo "   Fix: Run ./deploy-complete-setup.sh to redeploy with dependencies"
+    elif echo "$EVAL_RESPONSE" | grep -q "Missing required parameters\|cluster_endpoint"; then
+        pass_test "Evaluation endpoint reachable (validation working)"
     else
         pass_test "Evaluation endpoint responding"
     fi

@@ -1,4 +1,4 @@
-boto3==1.34.0
+# boto3 is already provided by AWS Lambda, no need to package it
+# urllib3 comes with requests, no need to specify separately
 PyYAML==6.0.1
 requests==2.31.0
-urllib3==2.0.7

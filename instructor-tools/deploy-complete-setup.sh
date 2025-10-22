@@ -100,10 +100,16 @@ echo ""
 cd ../evaluation/lambda
 echo "Packaging evaluation Lambda with dependencies..."
 
+# Clean up any previous package
+rm -rf /tmp/lambda-package /tmp/evaluator.zip 2>/dev/null || true
+
 # Install dependencies to a temporary directory
 if [ -f "requirements.txt" ]; then
-    echo "Installing Python dependencies..."
-    pip install -r requirements.txt -t /tmp/lambda-package --quiet
+    echo "Installing Python dependencies (PyYAML, requests)..."
+    mkdir -p /tmp/lambda-package
+
+    # Install dependencies (excluding boto3 which is provided by Lambda runtime)
+    pip install -r requirements.txt -t /tmp/lambda-package --quiet --no-cache-dir
 
     # Copy Lambda function
     cp evaluator.py /tmp/lambda-package/
@@ -111,12 +117,15 @@ if [ -f "requirements.txt" ]; then
     # Create zip from package directory
     cd /tmp/lambda-package
     zip -r /tmp/evaluator.zip . -q
-    cd -
+    PACKAGE_SIZE=$(du -h /tmp/evaluator.zip | cut -f1)
+    echo "✅ Package created: ${PACKAGE_SIZE}"
+    cd - > /dev/null
 
-    # Cleanup
+    # Cleanup temporary directory
     rm -rf /tmp/lambda-package
 else
-    # Fallback: just package the Python file
+    # Fallback: just package the Python file (not recommended)
+    echo "⚠️  Warning: requirements.txt not found, packaging Python file only"
     zip -r /tmp/evaluator.zip evaluator.py -q
 fi
 
@@ -171,7 +180,15 @@ echo "✅ Evaluation Lambda deployed: ${EVAL_FUNCTION_URL}"
 # Package submission Lambda
 cd ../submission/lambda
 echo "Packaging submission Lambda..."
-zip -r /tmp/submitter.zip submitter.py
+
+# Clean up any previous package
+rm -rf /tmp/submitter.zip 2>/dev/null || true
+
+# Submission Lambda only needs boto3 (provided by Lambda runtime)
+zip -r /tmp/submitter.zip submitter.py -q
+PACKAGE_SIZE=$(du -h /tmp/submitter.zip | cut -f1)
+echo "✅ Package created: ${PACKAGE_SIZE}"
+
 cd ../../instructor-tools
 
 # Create submission Lambda function
