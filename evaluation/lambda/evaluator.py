@@ -279,9 +279,9 @@ def evaluate_task(task_id, kubeconfig_path):
                 limits = resources.get('limits', {})
                 results['resources_set'] = ('cpu' in limits and 'memory' in limits)
 
-            # Check labels
-            labels = deployment.get('metadata', {}).get('labels', {})
-            results['labels_correct'] = (labels.get('app') == 'nginx')
+            # Check labels (check pod template labels, not deployment metadata labels)
+            pod_template_labels = deployment.get('spec', {}).get('template', {}).get('metadata', {}).get('labels', {})
+            results['labels_correct'] = (pod_template_labels.get('app') == 'nginx')
 
     except Exception as e:
         print(f"Error checking deployment: {e}")

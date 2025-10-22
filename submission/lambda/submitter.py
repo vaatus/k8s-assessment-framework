@@ -74,8 +74,8 @@ def lambda_handler(event, context):
             'submitted': True
         }
         
-        # Store in submissions folder
-        submission_key = f'submissions/{task_id}/{student_id}/{submission_timestamp}.json'
+        # Store in submissions folder (consistent with evaluations path structure)
+        submission_key = f'submissions/{student_id}/{task_id}/{submission_timestamp}.json'
         s3.put_object(
             Bucket=BUCKET_NAME,
             Key=submission_key,
