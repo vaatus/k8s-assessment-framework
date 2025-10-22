@@ -307,8 +307,9 @@ Resources:
 
             # Store cluster info for evaluation
             KUBE_TOKEN=$(kubectl get secret evaluator-sa-token -n default -o jsonpath='{.data.token}' | base64 -d)
-            KUBE_API=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
             PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+            # Use public IP instead of 127.0.0.1 for remote access
+            KUBE_API="https://$PUBLIC_IP:6443"
 
             # Store credentials in home directory
             mkdir -p /home/ubuntu/.kube-assessment
