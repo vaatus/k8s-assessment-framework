@@ -325,135 +325,265 @@ Resources:
             chown -R ubuntu:ubuntu /home/ubuntu/.kube-assessment
             chmod 600 /home/ubuntu/.kube-assessment/cluster-info.json
 
-            # Clone assessment framework repository
+            # Create task workspace (no git clone needed)
             echo "Setting up task workspace..."
-            cd /home/ubuntu
-            git clone https://github.com/taha2samy/k8s-assessment-framework.git k8s-workspace
-            cd k8s-workspace
+            mkdir -p /home/ubuntu/k8s-workspace/tasks/${TaskSelection}
+
+            # Create task README
+            cat > /home/ubuntu/k8s-workspace/tasks/${TaskSelection}/README.md <<'EOFTASKREADME'
+            # Task 01: Deploy NGINX Web Application
+
+            ## Objective
+            Deploy a scalable NGINX web application with proper Kubernetes resources.
+
+            ## Requirements
+
+            1. **Deployment**:
+               - Name: \`nginx-web\`
+               - Namespace: \`default\`
+               - Replicas: 2
+               - Container image: \`nginx:latest\`
+               - Container port: 80
+
+            2. **Service**:
+               - Name: \`nginx-service\`
+               - Type: NodePort
+               - Port: 80
+               - NodePort: 30080
+               - Selector: \`app: nginx\`
+
+            3. **Labels**:
+               - All resources must have label: \`app: nginx\`
+
+            ## Validation Criteria
+
+            Your solution will be evaluated for:
+            - ✅ Deployment exists with correct name and namespace
+            - ✅ Deployment has 2 replicas running
+            - ✅ Pods are running and ready
+            - ✅ Service exists and is accessible
+            - ✅ Correct labels applied
+
+            ## How to Complete
+
+            1. Create your solution YAML file(s) in this directory
+            2. Apply your solution: \`kubectl apply -f your-solution.yaml\`
+            3. Verify it works: \`kubectl get all\`
+            4. Request evaluation: \`~/student-tools/request-evaluation.sh ${TaskSelection}\`
+            5. Review results and fix any issues
+            6. Submit when ready: \`~/student-tools/submit-final.sh ${TaskSelection}\`
+
+            ## Example Solution Structure
+
+            \`\`\`yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: nginx-web
+              namespace: default
+            spec:
+              replicas: 2
+              selector:
+                matchLabels:
+                  app: nginx
+              template:
+                metadata:
+                  labels:
+                    app: nginx
+                spec:
+                  containers:
+                  - name: nginx
+                    image: nginx:latest
+                    ports:
+                    - containerPort: 80
+            ---
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: nginx-service
+              namespace: default
+            spec:
+              type: NodePort
+              selector:
+                app: nginx
+              ports:
+              - port: 80
+                targetPort: 80
+                nodePort: 30080
+            \`\`\`
+
+            Good luck!
+            EOFTASKREADME
+
+            chown -R ubuntu:ubuntu /home/ubuntu/k8s-workspace
 
             # Create student tools directory
             mkdir -p /home/ubuntu/student-tools
 
             # Create evaluation request script
-            cat > /home/ubuntu/student-tools/request-evaluation.sh <<'EOFEVAL'
+            cat > /home/ubuntu/student-tools/request-evaluation.sh <<EOFEVAL
             #!/bin/bash
             set -e
 
-            TASK_ID="$1"
-            if [ -z "$TASK_ID" ]; then
-                echo "Usage: $0 <task-id>"
-                echo "Example: $0 task-01"
+            TASK_ID="\\\$1"
+            if [ -z "\\\$TASK_ID" ]; then
+                echo "Usage: \\\$0 <task-id>"
+                echo "Example: \\\$0 task-01"
                 exit 1
             fi
 
-            echo "=== Requesting Evaluation for $TASK_ID ==="
+            echo "=== Requesting Evaluation for \\\$TASK_ID ==="
 
             # Load cluster info
             CLUSTER_INFO="/home/ubuntu/.kube-assessment/cluster-info.json"
-            if [ ! -f "$CLUSTER_INFO" ]; then
+            if [ ! -f "\\\$CLUSTER_INFO" ]; then
                 echo "Error: Cluster info not found"
                 exit 1
             fi
 
-            NEPTUN_CODE=$(jq -r '.neptun_code' "$CLUSTER_INFO")
-            KUBE_API=$(jq -r '.kube_api' "$CLUSTER_INFO")
-            KUBE_TOKEN=$(jq -r '.kube_token' "$CLUSTER_INFO")
-            PUBLIC_IP=$(jq -r '.public_ip' "$CLUSTER_INFO")
+            NEPTUN_CODE=\\\$(jq -r '.neptun_code' "\\\$CLUSTER_INFO")
+            KUBE_API=\\\$(jq -r '.kube_api' "\\\$CLUSTER_INFO")
+            KUBE_TOKEN=\\\$(jq -r '.kube_token' "\\\$CLUSTER_INFO")
+            PUBLIC_IP=\\\$(jq -r '.public_ip' "\\\$CLUSTER_INFO")
 
             # Prepare request payload
-            PAYLOAD=$(jq -n \
-              --arg neptun "$NEPTUN_CODE" \
-              --arg task "$TASK_ID" \
-              --arg api "$KUBE_API" \
-              --arg token "$KUBE_TOKEN" \
-              --arg ip "$PUBLIC_IP" \
+            PAYLOAD=\\\$(jq -n \\
+              --arg neptun "\\\$NEPTUN_CODE" \\
+              --arg task "\\\$TASK_ID" \\
+              --arg api "\\\$KUBE_API" \\
+              --arg token "\\\$KUBE_TOKEN" \\
+              --arg ip "\\\$PUBLIC_IP" \\
               '{
-                neptun_code: $neptun,
-                task_id: $task,
-                kube_api_url: $api,
-                service_account_token: $token,
-                public_ip: $ip
+                neptun_code: \\\$neptun,
+                task_id: \\\$task,
+                cluster_endpoint: \\\$api,
+                service_account_token: \\\$token,
+                public_ip: \\\$ip
               }')
 
-            # Send request to evaluation endpoint
-            RESPONSE=$(curl -s -X POST "${EvaluationEndpoint}" \
-              -H "Content-Type: application/json" \
-              -H "X-API-Key: ${ApiKey}" \
-              -d "$PAYLOAD")
-
-            echo "$RESPONSE" | jq '.'
-
-            # Save response
-            echo "$RESPONSE" > "/home/ubuntu/evaluation-results-$TASK_ID-$(date +%s).json"
+            echo "Sending evaluation request..."
             echo ""
-            echo "Results saved to: /home/ubuntu/evaluation-results-$TASK_ID-$(date +%s).json"
+
+            # Send request to evaluation endpoint
+            RESPONSE=\\\$(curl -s -w "\\nHTTP_CODE:%{http_code}" -X POST "${EvaluationEndpoint}" \\
+              -H "Content-Type: application/json" \\
+              -H "X-API-Key: ${ApiKey}" \\
+              -d "\\\$PAYLOAD")
+
+            HTTP_CODE=\\\$(echo "\\\$RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
+            BODY=\\\$(echo "\\\$RESPONSE" | grep -v "HTTP_CODE:")
+
+            if [ "\\\$HTTP_CODE" = "200" ]; then
+                echo "\\\$BODY" | jq '.'
+
+                # Save response
+                TIMESTAMP=\\\$(date +%s)
+                echo "\\\$BODY" > "/home/ubuntu/evaluation-results-\\\$TASK_ID-\\\$TIMESTAMP.json"
+                echo ""
+                echo "✅ Evaluation complete!"
+                echo "Results saved to: /home/ubuntu/evaluation-results-\\\$TASK_ID-\\\$TIMESTAMP.json"
+            else
+                echo "❌ Evaluation failed (HTTP \\\$HTTP_CODE)"
+                echo "\\\$BODY"
+            fi
             EOFEVAL
 
             # Create submission script
-            cat > /home/ubuntu/student-tools/submit-final.sh <<'EOFSUBMIT'
+            cat > /home/ubuntu/student-tools/submit-final.sh <<EOFSUBMIT
             #!/bin/bash
             set -e
 
-            TASK_ID="$1"
-            if [ -z "$TASK_ID" ]; then
-                echo "Usage: $0 <task-id>"
-                echo "Example: $0 task-01"
+            TASK_ID="\\\$1"
+            if [ -z "\\\$TASK_ID" ]; then
+                echo "Usage: \\\$0 <task-id>"
+                echo "Example: \\\$0 task-01"
                 exit 1
             fi
 
-            echo "=== Submitting Final Results for $TASK_ID ==="
+            echo "=== Submitting Final Results for \\\$TASK_ID ==="
             echo ""
             echo "WARNING: This will submit your current solution as final."
             read -p "Are you sure? (yes/no): " CONFIRM
 
-            if [ "$CONFIRM" != "yes" ]; then
+            if [ "\\\$CONFIRM" != "yes" ]; then
                 echo "Submission cancelled."
                 exit 0
             fi
 
             # Load cluster info
             CLUSTER_INFO="/home/ubuntu/.kube-assessment/cluster-info.json"
-            if [ ! -f "$CLUSTER_INFO" ]; then
+            if [ ! -f "\\\$CLUSTER_INFO" ]; then
                 echo "Error: Cluster info not found"
                 exit 1
             fi
 
-            NEPTUN_CODE=$(jq -r '.neptun_code' "$CLUSTER_INFO")
-            KUBE_API=$(jq -r '.kube_api' "$CLUSTER_INFO")
-            KUBE_TOKEN=$(jq -r '.kube_token' "$CLUSTER_INFO")
-            PUBLIC_IP=$(jq -r '.public_ip' "$CLUSTER_INFO")
+            NEPTUN_CODE=\\\$(jq -r '.neptun_code' "\\\$CLUSTER_INFO")
+            KUBE_API=\\\$(jq -r '.kube_api' "\\\$CLUSTER_INFO")
+            KUBE_TOKEN=\\\$(jq -r '.kube_token' "\\\$CLUSTER_INFO")
+            PUBLIC_IP=\\\$(jq -r '.public_ip' "\\\$CLUSTER_INFO")
+
+            # First, run evaluation to get eval_token
+            echo "Running final evaluation..."
+            EVAL_PAYLOAD=\\\$(jq -n \\
+              --arg neptun "\\\$NEPTUN_CODE" \\
+              --arg task "\\\$TASK_ID" \\
+              --arg api "\\\$KUBE_API" \\
+              --arg token "\\\$KUBE_TOKEN" \\
+              --arg ip "\\\$PUBLIC_IP" \\
+              '{
+                neptun_code: \\\$neptun,
+                task_id: \\\$task,
+                cluster_endpoint: \\\$api,
+                service_account_token: \\\$token,
+                public_ip: \\\$ip
+              }')
+
+            EVAL_RESPONSE=\\\$(curl -s -X POST "${EvaluationEndpoint}" \\
+              -H "Content-Type: application/json" \\
+              -H "X-API-Key: ${ApiKey}" \\
+              -d "\\\$EVAL_PAYLOAD")
+
+            EVAL_TOKEN=\\\$(echo "\\\$EVAL_RESPONSE" | jq -r '.eval_token // empty')
+
+            if [ -z "\\\$EVAL_TOKEN" ]; then
+                echo "❌ Failed to get evaluation token. Cannot submit."
+                echo "Response: \\\$EVAL_RESPONSE"
+                exit 1
+            fi
+
+            echo "Evaluation token received: \\\${EVAL_TOKEN:0:20}..."
 
             # Prepare submission payload
-            PAYLOAD=$(jq -n \
-              --arg neptun "$NEPTUN_CODE" \
-              --arg task "$TASK_ID" \
-              --arg api "$KUBE_API" \
-              --arg token "$KUBE_TOKEN" \
-              --arg ip "$PUBLIC_IP" \
+            SUBMIT_PAYLOAD=\\\$(jq -n \\
+              --arg neptun "\\\$NEPTUN_CODE" \\
+              --arg task "\\\$TASK_ID" \\
+              --arg eval_token "\\\$EVAL_TOKEN" \\
               '{
-                neptun_code: $neptun,
-                task_id: $task,
-                kube_api_url: $api,
-                service_account_token: $token,
-                public_ip: $ip,
+                neptun_code: \\\$neptun,
+                task_id: \\\$task,
+                eval_token: \\\$eval_token,
                 submission_type: "final"
               }')
 
             # Send submission request
-            RESPONSE=$(curl -s -X POST "${SubmissionEndpoint}" \
-              -H "Content-Type: application/json" \
-              -H "X-API-Key: ${ApiKey}" \
-              -d "$PAYLOAD")
+            echo "Submitting final results..."
+            SUBMIT_RESPONSE=\\\$(curl -s -w "\\nHTTP_CODE:%{http_code}" -X POST "${SubmissionEndpoint}" \\
+              -H "Content-Type: application/json" \\
+              -H "X-API-Key: ${ApiKey}" \\
+              -d "\\\$SUBMIT_PAYLOAD")
 
-            echo "$RESPONSE" | jq '.'
+            HTTP_CODE=\\\$(echo "\\\$SUBMIT_RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
+            BODY=\\\$(echo "\\\$SUBMIT_RESPONSE" | grep -v "HTTP_CODE:")
 
-            if echo "$RESPONSE" | jq -e '.success' > /dev/null 2>&1; then
+            echo ""
+            if [ "\\\$HTTP_CODE" = "200" ]; then
+                echo "\\\$BODY" | jq '.'
                 echo ""
                 echo "✅ Submission successful!"
                 echo "Your results have been submitted to the instructor."
             else
-                echo ""
-                echo "❌ Submission failed. Please check the error message above."
+                echo "❌ Submission failed (HTTP \\\$HTTP_CODE)"
+                echo "\\\$BODY"
             fi
             EOFSUBMIT
 
