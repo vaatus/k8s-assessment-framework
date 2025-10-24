@@ -588,6 +588,9 @@ class TaskEvaluator:
         criteria = self.task_spec.get('scoring', {}).get('criteria', [])
         score = 0
 
+        # Debug: Print all result keys
+        print(f"DEBUG: All result keys: {list(results.keys())}")
+
         for criterion in criteria:
             criterion_id = criterion['id']
             points = criterion['points']
@@ -605,10 +608,21 @@ class TaskEvaluator:
 
     def find_result(self, results, criterion_id):
         """Find result value for criterion"""
+        # First try exact match
         if criterion_id in results:
             return results[criterion_id]
 
-        # Check with resource prefix (criterion_id should be the suffix)
+        # Case 1: criterion_id has resource prefix (e.g., "deployment_exists")
+        # Match against "deployment_nginx-web_exists"
+        parts = criterion_id.split('_', 1)
+        if len(parts) == 2:
+            resource_type, check_name = parts
+            for key, value in results.items():
+                if key.startswith(f"{resource_type}_") and key.endswith(f"_{check_name}") and value:
+                    return True
+
+        # Case 2: criterion_id has NO prefix (e.g., "replicas_correct")
+        # Match against any key ending with "_replicas_correct"
         for key, value in results.items():
             if key.endswith(f"_{criterion_id}") and value:
                 return True
@@ -630,12 +644,23 @@ def generate_summary(results, task_spec):
             summary[cid] = results[cid]
             found = True
         else:
-            # Check with resource prefix (criterion should be suffix)
-            for key, value in results.items():
-                if key.endswith(f"_{cid}"):
-                    summary[cid] = value
-                    found = True
-                    break
+            # Case 1: criterion has resource prefix (e.g., "deployment_exists")
+            parts = cid.split('_', 1)
+            if len(parts) == 2:
+                resource_type, check_name = parts
+                for key, value in results.items():
+                    if key.startswith(f"{resource_type}_") and key.endswith(f"_{check_name}"):
+                        summary[cid] = value
+                        found = True
+                        break
+
+            # Case 2: criterion has NO prefix (e.g., "replicas_correct")
+            if not found:
+                for key, value in results.items():
+                    if key.endswith(f"_{cid}"):
+                        summary[cid] = value
+                        found = True
+                        break
 
         if not found:
             summary[cid] = False
