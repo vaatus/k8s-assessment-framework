@@ -608,9 +608,9 @@ class TaskEvaluator:
         if criterion_id in results:
             return results[criterion_id]
 
-        # Check with resource prefix
+        # Check with resource prefix (criterion_id should be the suffix)
         for key, value in results.items():
-            if criterion_id in key and value:
+            if key.endswith(f"_{criterion_id}") and value:
                 return True
 
         return False
@@ -625,11 +625,17 @@ def generate_summary(results, task_spec):
         cid = criterion['id']
         found = False
 
-        for key, value in results.items():
-            if cid in key:
-                summary[cid] = value
-                found = True
-                break
+        # First check exact match
+        if cid in results:
+            summary[cid] = results[cid]
+            found = True
+        else:
+            # Check with resource prefix (criterion should be suffix)
+            for key, value in results.items():
+                if key.endswith(f"_{cid}"):
+                    summary[cid] = value
+                    found = True
+                    break
 
         if not found:
             summary[cid] = False
