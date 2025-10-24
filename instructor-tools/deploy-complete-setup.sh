@@ -104,6 +104,9 @@ echo ""
 echo "=== Step 2: Deploying Lambda Functions ==="
 echo ""
 
+# Package evaluation Lambda
+cd ../evaluation/lambda
+
 # Choose evaluator version
 EVALUATOR_FILE="evaluator.py"
 if [ -f "evaluator_dynamic.py" ]; then
@@ -120,11 +123,8 @@ if [ -f "evaluator_dynamic.py" ]; then
         echo "Using dynamic evaluator (evaluator_dynamic.py)"
     fi
 else
-    echo "Using evaluator.py"
+    echo "Using simple evaluator (evaluator.py)"
 fi
-
-# Package evaluation Lambda
-cd ../evaluation/lambda
 echo "Packaging evaluation Lambda with dependencies..."
 
 # Clean up any previous package
