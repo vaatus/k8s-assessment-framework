@@ -1,0 +1,115 @@
+task_id: "task-02"
+task_name: "StatefulSet Key-Value Store"
+task_type: "statefulset"
+namespace: "task-02"
+
+description: |
+  Create a StatefulSet for a key-value store application with the following requirements:
+  - StatefulSet named 'key-value-svc'
+  - 4 replicas
+  - Each pod has persistent storage (1Mi minimum)
+  - Headless service for pod-to-pod communication
+  - Application supports /obj/<key> for storing and retrieving values
+
+required_resources:
+  statefulsets:
+    - name: "key-value-svc"
+      replicas: 4
+      selector_labels:
+        app: "key-value"
+      volumeClaimTemplates:
+        - name: "data"
+          min_storage: "1Mi"
+      containers:
+        - name: "app"
+          ports:
+            - containerPort: 5000
+
+  services:
+    - name: "key-value-headless"
+      type: "ClusterIP"
+      clusterIP: "None"  # Headless service
+      selector_labels:
+        app: "key-value"
+
+application_checks:
+  - check_id: "store_data"
+    check_type: "http_post"
+    target_pod: "key-value-svc-0"
+    service: "key-value-headless"
+    port: 5000
+    path: "/obj/testkey"
+    body: "testvalue"
+    expected_status: 200
+    timeout: 30
+    points: 15
+    description: "Can store data via HTTP POST"
+
+  - check_id: "retrieve_data"
+    check_type: "http_get"
+    target_pod: "key-value-svc-0"
+    service: "key-value-headless"
+    port: 5000
+    path: "/obj/testkey"
+    expected_body_contains: "testvalue"
+    expected_status: 200
+    timeout: 30
+    points: 15
+    description: "Can retrieve stored data"
+
+  - check_id: "location_endpoint"
+    check_type: "http_get"
+    target_pod: "key-value-svc-0"
+    service: "key-value-headless"
+    port: 5000
+    path: "/location/testkey"
+    expected_status: 200
+    timeout: 30
+    points: 10
+    description: "Location endpoint works"
+
+custom_checks:
+  - check_id: "data_persistence"
+    description: "Data persists after pod restart"
+    points: 20
+    validation_steps:
+      - store_data_in_pod_0
+      - delete_pod_0
+      - wait_for_pod_recreation
+      - verify_data_still_exists
+
+scoring:
+  max_score: 100
+  criteria:
+    - id: "statefulset_exists"
+      description: "StatefulSet 'key-value-svc' exists"
+      points: 15
+      required: true
+
+    - id: "replica_count_correct"
+      description: "StatefulSet has 4 replicas"
+      points: 10
+
+    - id: "pvcs_created"
+      description: "PersistentVolumeClaims created for all pods"
+      points: 15
+
+    - id: "headless_service_exists"
+      description: "Headless service exists"
+      points: 10
+
+    - id: "pods_running"
+      description: "All 4 pods are running"
+      points: 10
+
+    - id: "store_data"
+      description: "Can store data via POST"
+      points: 10
+
+    - id: "retrieve_data"
+      description: "Can retrieve stored data"
+      points: 10
+
+    - id: "data_persistence"
+      description: "Data persists after pod restart"
+      points: 20

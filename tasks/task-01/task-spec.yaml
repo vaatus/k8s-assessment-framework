@@ -1,0 +1,59 @@
+task_id: "task-01"
+task_name: "NGINX Web Deployment"
+task_type: "deployment"
+namespace: "task-01"
+
+description: |
+  Deploy an NGINX web server with the following requirements:
+  - Deployment named 'nginx-web'
+  - 2 replicas
+  - Using nginx image
+  - Proper labels (app=nginx)
+  - Resource limits configured
+  - Service exposing the deployment
+
+required_resources:
+  deployments:
+    - name: "nginx-web"
+      replicas: 2
+      selector_labels:
+        app: "nginx"
+      containers:
+        - name: "nginx"
+          image_pattern: "nginx"
+          ports:
+            - containerPort: 80
+          resources:
+            limits_required: true
+
+scoring:
+  max_score: 100
+  criteria:
+    - id: "deployment_exists"
+      description: "Deployment 'nginx-web' exists in correct namespace"
+      points: 20
+      required: true
+
+    - id: "replicas_correct"
+      description: "Deployment has exactly 2 replicas"
+      points: 15
+
+    - id: "image_correct"
+      description: "Uses nginx image"
+      points: 15
+
+    - id: "resources_set"
+      description: "CPU and memory limits configured"
+      points: 20
+
+    - id: "labels_correct"
+      description: "Pod template has app=nginx label"
+      points: 10
+
+    - id: "pod_count_correct"
+      description: "Exactly 2 pods exist"
+      points: 10
+
+    - id: "pods_running"
+      description: "All pods are in Running state"
+      points: 10

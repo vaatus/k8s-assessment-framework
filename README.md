@@ -17,9 +17,13 @@ This framework enables instructors to deploy a complete Kubernetes assessment in
 - ✅ **Fully Automated**: One-command deployment for instructors, zero manual configuration for students
 - ✅ **Cross-Account**: Instructor and students use separate AWS accounts (AWS Learner Lab compatible)
 - ✅ **Remote Evaluation**: Lambda functions connect to student clusters via service account tokens
+- ✅ **Multi-Task Support**: Three task types supported (Deployments, StatefulSets, Multi-Service)
+- ✅ **Dynamic Evaluation**: Task-specific validation based on YAML specifications
+- ✅ **HTTP Endpoint Testing**: Test-runner pods execute application-level checks inside cluster
 - ✅ **Task Isolation**: Each task uses its own Kubernetes namespace
 - ✅ **Secure**: API key authentication, private S3 storage for results
 - ✅ **Scalable**: Support for multiple students and tasks
+- ✅ **Extensible**: Easy to add new tasks with custom validation logic
 - ✅ **Policy Enforcement**: Kyverno policies installed for advanced scenarios
 
 ## Quick Start
@@ -150,18 +154,55 @@ k8s-eval-results/
             └── {timestamp}.json
 ```
 
-## Scoring System (Task-01 Example)
+## Supported Tasks
 
-| Criterion | Points | Description |
-|-----------|--------|-------------|
-| deployment_exists | 20 | Deployment "nginx-web" exists in task namespace |
-| replicas_correct | 15 | Deployment has 2 replicas |
-| image_correct | 15 | Uses nginx image |
-| resources_set | 20 | CPU and memory limits configured |
-| labels_correct | 10 | Pod template has app=nginx label |
-| pod_count_correct | 10 | Exactly 2 pods exist |
-| pods_running | 10 | All 2 pods are Running |
-| **Total** | **100** | |
+### Task 01: NGINX Deployment (Simple)
+**Type**: Deployment validation
+**Complexity**: Beginner
+**Evaluation**: Kubernetes resource checks only
+
+| Criterion | Points |
+|-----------|--------|
+| Deployment exists | 20 |
+| Replicas correct (2) | 15 |
+| Image correct (nginx) | 15 |
+| Resources set | 20 |
+| Labels correct | 10 |
+| Pod count correct | 10 |
+| Pods running | 10 |
+| **Total** | **100** |
+
+### Task 02: StatefulSet Key-Value Store (Advanced)
+**Type**: StatefulSet with persistent storage
+**Complexity**: Intermediate
+**Evaluation**: Resource checks + HTTP endpoint testing
+
+| Criterion | Points |
+|-----------|--------|
+| StatefulSet exists | 15 |
+| Replica count (4) | 10 |
+| PVCs created | 15 |
+| Headless service | 10 |
+| Pods running | 10 |
+| Store data (POST) | 10 |
+| Retrieve data (GET) | 10 |
+| Data persistence | 20 |
+| **Total** | **100** |
+
+### Task 03: Health Probes & Graceful Shutdown (Complex)
+**Type**: Multi-service application
+**Complexity**: Advanced
+**Evaluation**: Resource checks + HTTP testing + probe configuration
+
+| Criterion | Points |
+|-----------|--------|
+| Backend deployment | 5 |
+| Frontend deployment | 5 |
+| Services exist | 10 |
+| Backend endpoints | 20 |
+| Frontend endpoints | 40 |
+| Probes configured | 20 |
+| **Total** | **100** |
 
 ## Key Technical Details
 
@@ -259,8 +300,41 @@ Place Kyverno policies in `policies/` directory and add to CloudFormation UserDa
 
 ## Documentation
 
-- `FULL_SETUP_GUIDE.md` - Complete deployment and testing guide with step-by-step instructions
-- `tasks/task-01/README.md` - Example task description (students see this)
+### For Instructors
+- `FULL_SETUP_GUIDE.md` - Complete deployment and testing guide (basic system)
+- `MULTI_TASK_DEPLOYMENT_GUIDE.md` - Advanced multi-task system deployment
+- `tasks/task-spec-format.md` - Task specification format reference
+
+### For Students
+- `tasks/task-01/README.md` - NGINX deployment task
+- `tasks/task-02/README.md` - StatefulSet task
+- `tasks/task-03/README.md` - Health probes task
+
+### For Developers
+- `evaluation/test-runner/README.md` - Test-runner pod documentation
+- `evaluation/lambda/evaluator.py` - Simple evaluator (task-01 only)
+- `evaluation/lambda/evaluator_dynamic.py` - Dynamic evaluator (all tasks)
+
+## System Versions
+
+### Simple System (v1.0)
+- Single evaluator: `evaluator.py`
+- Supports: task-01 only
+- Evaluation: Kubernetes resource validation
+- Suitable for: Basic deployment tasks
+
+### Advanced System (v2.0)
+- Dynamic evaluator: `evaluator_dynamic.py`
+- Supports: task-01, task-02, task-03, and custom tasks
+- Evaluation: Resource validation + HTTP endpoint testing
+- Features: Test-runner pods, task specifications, flexible scoring
+- Suitable for: Complex, application-level tasks
+
+## Deployment Modes
+
+Choose during `deploy-complete-setup.sh`:
+1. **Simple mode**: Uses `evaluator.py` (faster, task-01 only)
+2. **Advanced mode**: Uses `evaluator_dynamic.py` (full features, all tasks)
 
 ## License
 
@@ -274,4 +348,7 @@ This is a thesis project. For issues or feature requests, please open a GitHub i
 
 **Status**: Production Ready ✅
 
-Last tested: 2025-10-22 with complete end-to-end workflow verification.
+- **Simple System**: Tested and verified (task-01)
+- **Advanced System**: Implemented and ready for testing (task-01, task-02, task-03)
+
+Last updated: 2025-10-23

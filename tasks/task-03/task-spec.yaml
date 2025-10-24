@@ -1,0 +1,196 @@
+task_id: "task-03"
+task_name: "Health Probes and Graceful Shutdown"
+task_type: "multi-service"
+namespace: "task-03"
+
+description: |
+  Create a frontend and backend service with health probes and graceful shutdown:
+  - Backend service with /get-config, /ping, /game-over endpoints
+  - Frontend service with startup, liveness probes
+  - Frontend implements /startup, /who-am-i, /health endpoints
+  - Graceful shutdown: frontend calls backend's /game-over on termination
+
+required_resources:
+  deployments:
+    - name: "backend"
+      replicas: 1
+      selector_labels:
+        app: "backend"
+      containers:
+        - name: "backend"
+          ports:
+            - containerPort: 5000
+
+    - name: "frontend"
+      replicas: 1
+      selector_labels:
+        app: "frontend"
+      containers:
+        - name: "frontend"
+          ports:
+            - containerPort: 8080
+      startup_probe:
+        http_get:
+          path: "/startup"
+          port: 8080
+        required: true
+      liveness_probe:
+        http_get:
+          path: "/health"
+          port: 8080
+        period_seconds: 5
+        failure_threshold: 3
+        required: true
+
+  services:
+    - name: "svc-backend"
+      type: "ClusterIP"
+      selector_labels:
+        app: "backend"
+      ports:
+        - port: 5000
+          targetPort: 5000
+
+    - name: "svc-frontend"
+      type: "NodePort"
+      selector_labels:
+        app: "frontend"
+      ports:
+        - port: 8080
+          targetPort: 8080
+
+application_checks:
+  - check_id: "backend_get_config"
+    check_type: "http_get"
+    service: "svc-backend"
+    port: 5000
+    path: "/get-config"
+    expected_status: 200
+    timeout: 30
+    points: 10
+    description: "Backend /get-config endpoint works"
+
+  - check_id: "backend_ping"
+    check_type: "http_get"
+    service: "svc-backend"
+    port: 5000
+    path: "/ping"
+    expected_status: 200
+    timeout: 30
+    points: 10
+    description: "Backend /ping endpoint works"
+
+  - check_id: "frontend_startup"
+    check_type: "http_get"
+    service: "svc-frontend"
+    port: 8080
+    path: "/startup"
+    expected_status: 200
+    timeout: 30
+    points: 15
+    description: "Frontend /startup endpoint works"
+
+  - check_id: "frontend_who_am_i"
+    check_type: "http_get"
+    service: "svc-frontend"
+    port: 8080
+    path: "/who-am-i"
+    expected_status: 200
+    expected_json_fields:
+      - "name"
+      - "code"
+    timeout: 30
+    points: 15
+    description: "Frontend /who-am-i returns pod name and backend code"
+
+  - check_id: "frontend_health"
+    check_type: "http_get"
+    service: "svc-frontend"
+    port: 8080
+    path: "/health"
+    expected_status: 200
+    timeout: 30
+    points: 10
+    description: "Frontend /health endpoint works"
+
+probe_checks:
+  - check_id: "startup_probe_configured"
+    check_type: "probe_exists"
+    deployment: "frontend"
+    probe_type: "startup"
+    path: "/startup"
+    points: 10
+    description: "Startup probe configured correctly"
+
+  - check_id: "liveness_probe_configured"
+    check_type: "probe_exists"
+    deployment: "frontend"
+    probe_type: "liveness"
+    path: "/health"
+    period_seconds: 5
+    failure_threshold: 3
+    points: 10
+    description: "Liveness probe configured with correct parameters"
+
+custom_checks:
+  - check_id: "graceful_shutdown"
+    description: "Frontend calls backend /game-over on shutdown"
+    points: 20
+    validation_steps:
+      - check_backend_game_over_not_called
+      - delete_frontend_pod
+      - wait_for_termination
+      - verify_backend_game_over_was_called
+
+scoring:
+  max_score: 100
+  criteria:
+    - id: "backend_deployment_exists"
+      description: "Backend deployment exists"
+      points: 5
+      required: true
+
+    - id: "frontend_deployment_exists"
+      description: "Frontend deployment exists"
+      points: 5
+      required: true
+
+    - id: "backend_service_exists"
+      description: "Backend service exists"
+      points: 5
+
+    - id: "frontend_service_exists"
+      description: "Frontend service exists"
+      points: 5
+
+    - id: "backend_get_config"
+      description: "Backend /get-config works"
+      points: 10
+
+    - id: "backend_ping"
+      description: "Backend /ping works"
+      points: 10
+
+    - id: "frontend_startup"
+      description: "Frontend /startup works"
+      points: 15
+
+    - id: "frontend_who_am_i"
+      description: "Frontend /who-am-i works"
+      points: 15
+
+    - id: "frontend_health"
+      description: "Frontend /health works"
+      points: 10
+
+    - id: "startup_probe_configured"
+      description: "Startup probe configured"
+      points: 10
+
+    - id: "liveness_probe_configured"
+      description: "Liveness probe configured"
+      points: 10
+
+    - id: "graceful_shutdown"
+      description: "Graceful shutdown works"
+      points: 5

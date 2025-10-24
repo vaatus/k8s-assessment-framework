@@ -104,6 +104,25 @@ echo ""
 echo "=== Step 2: Deploying Lambda Functions ==="
 echo ""
 
+# Choose evaluator version
+EVALUATOR_FILE="evaluator.py"
+if [ -f "evaluator_dynamic.py" ]; then
+    echo "Found dynamic evaluator - which version to use?"
+    echo "  1) evaluator.py (simple - task-01 only)"
+    echo "  2) evaluator_dynamic.py (advanced - all tasks, HTTP testing)"
+    read -p "Choice (1/2) [default: 2]: " EVALUATOR_CHOICE
+
+    if [ "$EVALUATOR_CHOICE" == "1" ]; then
+        EVALUATOR_FILE="evaluator.py"
+        echo "Using simple evaluator (evaluator.py)"
+    else
+        EVALUATOR_FILE="evaluator_dynamic.py"
+        echo "Using dynamic evaluator (evaluator_dynamic.py)"
+    fi
+else
+    echo "Using evaluator.py"
+fi
+
 # Package evaluation Lambda
 cd ../evaluation/lambda
 echo "Packaging evaluation Lambda with dependencies..."
@@ -119,8 +138,8 @@ if [ -f "requirements.txt" ]; then
     # Install dependencies (excluding boto3 which is provided by Lambda runtime)
     pip install -r requirements.txt -t /tmp/lambda-package --quiet --no-cache-dir
 
-    # Copy Lambda function
-    cp evaluator.py /tmp/lambda-package/
+    # Copy Lambda function (use selected evaluator)
+    cp ${EVALUATOR_FILE} /tmp/lambda-package/evaluator.py
 
     # Create zip from package directory
     cd /tmp/lambda-package
@@ -134,7 +153,9 @@ if [ -f "requirements.txt" ]; then
 else
     # Fallback: just package the Python file (not recommended)
     echo "⚠️  Warning: requirements.txt not found, packaging Python file only"
-    zip -r /tmp/evaluator.zip evaluator.py -q
+    cp ${EVALUATOR_FILE} /tmp/evaluator.py
+    zip -r /tmp/evaluator.zip /tmp/evaluator.py -q
+    rm /tmp/evaluator.py
 fi
 
 cd ../../instructor-tools
