@@ -6,6 +6,7 @@ Runs HTTP endpoint tests, data persistence checks, and graceful shutdown validat
 
 import json
 import sys
+import os
 import requests
 import time
 from datetime import datetime
@@ -198,15 +199,19 @@ class TestRunner:
 
 def main():
     """
-    Main entry point - reads checks from stdin and outputs results to stdout
+    Main entry point - reads checks from environment variable and outputs results to stdout
     """
     print("Test Runner Starting...")
     print(f"Time: {datetime.utcnow().isoformat()}")
 
     try:
-        # Read checks from stdin (passed by Lambda)
-        input_data = sys.stdin.read()
-        checks_spec = json.loads(input_data)
+        # Read checks from environment variable (passed by Lambda)
+        test_spec_json = os.environ.get('TEST_SPEC')
+
+        if not test_spec_json:
+            raise Exception("TEST_SPEC environment variable not set")
+
+        checks_spec = json.loads(test_spec_json)
 
         checks = checks_spec.get('checks', [])
         print(f"Loaded {len(checks)} checks")

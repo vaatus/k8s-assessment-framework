@@ -11,6 +11,19 @@ In this task, you will create a StatefulSet for a key-value store application wi
 - Work with headless services for stable network identities
 - Implement data persistence across pod restarts
 
+## 📦 Pre-loaded Docker Image
+
+A key-value store application image has been **pre-loaded** into your K3s cluster:
+- **Image name**: `kvstore:latest`
+- **Image location**: Already imported to K3s (no pull needed)
+- **Important**: Use `imagePullPolicy: Never` in your YAML to use the local image
+
+You can verify the image is available:
+```bash
+sudo k3s ctr images ls | grep kvstore
+# Should show: docker.io/library/kvstore:latest
+```
+
 ## Requirements
 
 Create a Stateful application with the following specifications:
@@ -25,8 +38,10 @@ Create a Stateful application with the following specifications:
 ### 2. Container Specifications
 
 - **Container Name**: `app`
-- **Image**: Your key-value store application image
+- **Image**: `kvstore:latest` (pre-loaded image)
+- **ImagePullPolicy**: `Never` (use local image, don't pull)
 - **Port**: 5000
+- **Environment**: Set `POD_NAME` from `metadata.name` (for tracking)
 
 ### 3. Persistent Storage
 
@@ -94,10 +109,16 @@ spec:
     spec:
       containers:
       - name: app
-        image: your-key-value-store:latest
+        image: kvstore:latest              # Pre-loaded image
+        imagePullPolicy: Never             # Use local image
         ports:
         - containerPort: 5000
           name: http
+        env:
+        - name: POD_NAME                   # For tracking which pod stores data
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
         volumeMounts:
         - name: data
           mountPath: /data
