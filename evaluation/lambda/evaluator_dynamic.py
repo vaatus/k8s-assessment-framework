@@ -518,6 +518,7 @@ class TaskEvaluator:
                 'containers': [{
                     'name': 'test-runner',
                     'image': TEST_RUNNER_IMAGE,
+                    'imagePullPolicy': 'Never',  # Use local image, don't pull from registry
                     'stdin': True,
                     'stdinOnce': True,
                     'command': ['python3', '/app/test_runner.py'],
