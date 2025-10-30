@@ -86,7 +86,7 @@ scoring:
       points: 15
       required: true
 
-    - id: "replica_count_correct"
+    - id: "replicas_correct"
       description: "StatefulSet has 4 replicas"
       points: 10
 
@@ -94,7 +94,7 @@ scoring:
       description: "PersistentVolumeClaims created for all pods"
       points: 15
 
-    - id: "headless_service_exists"
+    - id: "service_exists"
       description: "Headless service exists"
       points: 10
 
