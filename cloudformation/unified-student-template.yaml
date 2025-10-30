@@ -283,6 +283,41 @@ Resources:
             echo "Waiting for Kyverno to be ready..."
             kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kyverno -n kyverno --timeout=300s || true
 
+            # Download and import Docker images from S3
+            echo "Downloading Docker images from S3..."
+            IMAGES_BUCKET="k8s-assessment-templates"
+            IMAGES_PREFIX="docker-images"
+
+            # Download test-runner image
+            echo "Downloading test-runner image..."
+            wget -q -O /tmp/test-runner.tar "https://${!IMAGES_BUCKET}.s3.us-east-1.amazonaws.com/${!IMAGES_PREFIX}/test-runner.tar" || \
+              echo "Warning: test-runner image not found in S3, skipping..."
+
+            # Download kvstore image (for task-02)
+            echo "Downloading kvstore image..."
+            wget -q -O /tmp/kvstore.tar "https://${!IMAGES_BUCKET}.s3.us-east-1.amazonaws.com/${!IMAGES_PREFIX}/kvstore.tar" || \
+              echo "Warning: kvstore image not found in S3, skipping..."
+
+            # Import images into K3s
+            echo "Importing Docker images into K3s..."
+            if [ -f /tmp/test-runner.tar ]; then
+              k3s ctr images import /tmp/test-runner.tar && \
+                echo "✅ test-runner:latest imported successfully" || \
+                echo "❌ Failed to import test-runner image"
+              rm -f /tmp/test-runner.tar
+            fi
+
+            if [ -f /tmp/kvstore.tar ]; then
+              k3s ctr images import /tmp/kvstore.tar && \
+                echo "✅ kvstore:latest imported successfully" || \
+                echo "❌ Failed to import kvstore image"
+              rm -f /tmp/kvstore.tar
+            fi
+
+            # List imported images for verification
+            echo "Available images in K3s:"
+            k3s ctr images ls | grep -E "test-runner|kvstore" || echo "No custom images found"
+
             # Create task namespace
             echo "Creating task namespace: ${TaskSelection}..."
             kubectl create namespace ${TaskSelection}

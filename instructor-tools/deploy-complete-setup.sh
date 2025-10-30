@@ -28,9 +28,10 @@ fi
 
 echo "This script will set up the complete Kubernetes assessment framework:"
 echo "  1. Create S3 buckets (results and templates)"
-echo "  2. Deploy evaluation and submission Lambda functions"
-echo "  3. Configure CloudFormation template with endpoints"
-echo "  4. Generate student deployment link"
+echo "  2. Build and upload Docker images (test-runner, kvstore)"
+echo "  3. Deploy evaluation and submission Lambda functions"
+echo "  4. Configure CloudFormation template with endpoints"
+echo "  5. Generate student deployment link"
 echo ""
 read -p "Continue? (yes/no): " CONFIRM
 
@@ -98,10 +99,39 @@ rm -f /tmp/public-bucket-policy.json
 echo "✅ Public access enabled for templates bucket"
 
 # ============================================================================
-# Step 2: Deploy Lambda Functions
+# Step 2: Build and Upload Docker Images
 # ============================================================================
 echo ""
-echo "=== Step 2: Deploying Lambda Functions ==="
+echo "=== Step 2: Building and Uploading Docker Images ==="
+echo ""
+
+# Check if Docker is available
+if command -v docker &> /dev/null; then
+    echo "Docker is available. Building and uploading images..."
+    echo ""
+    read -p "Do you want to build and upload Docker images to S3? (yes/no) [default: yes]: " BUILD_IMAGES
+
+    if [ -z "$BUILD_IMAGES" ] || [ "$BUILD_IMAGES" == "yes" ]; then
+        if [ -f "build-and-upload-images.sh" ]; then
+            # Run the image build script non-interactively
+            CONFIRM=yes bash build-and-upload-images.sh
+        else
+            echo "⚠️  Warning: build-and-upload-images.sh not found, skipping image upload"
+        fi
+    else
+        echo "Skipping image build and upload"
+    fi
+else
+    echo "⚠️  Warning: Docker not found. Skipping image build."
+    echo "   Student environments will still work, but Lambda evaluation may fail"
+    echo "   if test-runner image is not available."
+fi
+
+# ============================================================================
+# Step 3: Deploy Lambda Functions
+# ============================================================================
+echo ""
+echo "=== Step 3: Deploying Lambda Functions ==="
 echo ""
 
 # Package evaluation Lambda
@@ -277,10 +307,10 @@ echo "${API_KEY}" > API_KEY.txt
 chmod 600 API_KEY.txt
 
 # ============================================================================
-# Step 3: Configure CloudFormation Template
+# Step 4: Configure CloudFormation Template
 # ============================================================================
 echo ""
-echo "=== Step 3: Configuring CloudFormation Template ==="
+echo "=== Step 4: Configuring CloudFormation Template ==="
 echo ""
 
 cd ../cloudformation
@@ -325,10 +355,10 @@ rm ${TEMPLATE_FILE}.tmp
 echo "✅ CloudFormation template configured and uploaded"
 
 # ============================================================================
-# Step 4: Generate Student Deployment Link
+# Step 5: Generate Student Deployment Link
 # ============================================================================
 echo ""
-echo "=== Step 4: Generating Student Deployment Link ==="
+echo "=== Step 5: Generating Student Deployment Link ==="
 echo ""
 
 TEMPLATE_URL="https://${TEMPLATES_BUCKET}.s3.${REGION}.amazonaws.com/${TEMPLATE_FILE}"
@@ -558,6 +588,11 @@ echo ""
 echo "📦 S3 Buckets:"
 echo "   Results (private):  ${RESULTS_BUCKET}"
 echo "   Templates (public): ${TEMPLATES_BUCKET}"
+echo ""
+echo "🐳 Docker Images:"
+echo "   test-runner: s3://${TEMPLATES_BUCKET}/docker-images/test-runner.tar"
+echo "   kvstore: s3://${TEMPLATES_BUCKET}/docker-images/kvstore.tar"
+echo "   (Auto-imported to student K3s clusters during deployment)"
 echo ""
 echo "🔗 Lambda Functions:"
 echo "   Evaluation: ${EVAL_FUNCTION_URL}"
