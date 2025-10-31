@@ -145,21 +145,21 @@ custom_checks:
 scoring:
   max_score: 100
   criteria:
-    - id: "backend_deployment_exists"
+    - id: "deployment_backend_exists"
       description: "Backend deployment exists"
       points: 5
       required: true
 
-    - id: "frontend_deployment_exists"
+    - id: "deployment_frontend_exists"
       description: "Frontend deployment exists"
       points: 5
       required: true
 
-    - id: "backend_service_exists"
+    - id: "service_svc-backend_exists"
       description: "Backend service exists"
       points: 5
 
-    - id: "frontend_service_exists"
+    - id: "service_svc-frontend_exists"
       description: "Frontend service exists"
       points: 5
 
