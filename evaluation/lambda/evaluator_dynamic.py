@@ -212,6 +212,11 @@ class TaskEvaluator:
             print("Starting application checks...")
             self.run_application_checks()
 
+        # Run custom checks if defined
+        if self.task_spec.get('custom_checks'):
+            print("Starting custom checks...")
+            self.run_custom_checks()
+
         return self.results
 
     def check_deployments(self):
@@ -503,6 +508,103 @@ class TaskEvaluator:
                 self.delete_test_runner_pod(pod_name)
             except:
                 pass
+
+    def run_custom_checks(self):
+        """Run custom checks defined in task spec"""
+        custom_checks = self.task_spec.get('custom_checks', [])
+
+        for check in custom_checks:
+            check_id = check['check_id']
+            print(f"Running custom check: {check_id}")
+
+            # Handle graceful_shutdown check
+            if check_id == 'graceful_shutdown':
+                self.results[check_id] = self.check_graceful_shutdown(check)
+            else:
+                # Future custom checks can be added here
+                print(f"Warning: Unknown custom check type: {check_id}")
+                self.results[check_id] = False
+
+    def check_graceful_shutdown(self, check):
+        """Test graceful shutdown by checking if frontend calls backend /game-over on termination"""
+        try:
+            print("Testing graceful shutdown...")
+
+            # Step 1: Get backend pod name
+            backend_pod = self.get_pod_by_label('app', 'backend')
+            if not backend_pod:
+                print("Error: Backend pod not found")
+                return False
+
+            backend_pod_name = backend_pod['metadata']['name']
+            print(f"Backend pod: {backend_pod_name}")
+
+            # Step 2: Get initial backend logs to check if /game-over was already called
+            initial_logs = self.get_pod_logs(backend_pod_name)
+            initial_game_over_count = initial_logs.count('POST /game-over')
+            print(f"Initial /game-over calls: {initial_game_over_count}")
+
+            # Step 3: Get frontend pod name
+            frontend_pod = self.get_pod_by_label('app', 'frontend')
+            if not frontend_pod:
+                print("Error: Frontend pod not found")
+                return False
+
+            frontend_pod_name = frontend_pod['metadata']['name']
+            print(f"Frontend pod: {frontend_pod_name}")
+
+            # Step 4: Delete frontend pod to trigger preStop hook
+            print(f"Deleting frontend pod to trigger preStop hook...")
+            self.delete_pod(frontend_pod_name)
+
+            # Step 5: Wait for termination and new pod to come up
+            print("Waiting for pod termination and restart...")
+            time.sleep(15)  # Give time for preStop hook to execute and pod to restart
+
+            # Step 6: Check backend logs again
+            final_logs = self.get_pod_logs(backend_pod_name)
+            final_game_over_count = final_logs.count('POST /game-over')
+            print(f"Final /game-over calls: {final_game_over_count}")
+
+            # Step 7: Verify that /game-over was called
+            if final_game_over_count > initial_game_over_count:
+                print("✓ Graceful shutdown working: /game-over was called")
+                return True
+            else:
+                print("✗ Graceful shutdown failed: /game-over was not called")
+                return False
+
+        except Exception as e:
+            print(f"Error testing graceful shutdown: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def get_pod_by_label(self, label_key, label_value):
+        """Get first pod matching label selector"""
+        try:
+            resp = self.session.get(
+                f'{self.endpoint}/api/v1/namespaces/{self.namespace}/pods',
+                params={'labelSelector': f'{label_key}={label_value}'},
+                timeout=30
+            )
+
+            if resp.status_code == 200:
+                pods = resp.json().get('items', [])
+                if pods:
+                    return pods[0]
+            return None
+        except Exception as e:
+            print(f"Error getting pod by label {label_key}={label_value}: {e}")
+            return None
+
+    def delete_pod(self, pod_name):
+        """Delete a pod"""
+        resp = self.session.delete(
+            f'{self.endpoint}/api/v1/namespaces/{self.namespace}/pods/{pod_name}',
+            timeout=30
+        )
+        return resp.status_code in [200, 202]
 
     def create_test_runner_pod(self, pod_name, test_spec):
         """Create test-runner pod in student cluster"""

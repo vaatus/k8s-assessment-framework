@@ -135,7 +135,7 @@ probe_checks:
 custom_checks:
   - check_id: "graceful_shutdown"
     description: "Frontend calls backend /game-over on shutdown"
-    points: 20
+    points: 5
     validation_steps:
       - check_backend_game_over_not_called
       - delete_frontend_pod
