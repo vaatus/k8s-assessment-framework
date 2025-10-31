@@ -121,8 +121,11 @@ if command -v docker &> /dev/null; then
 
     if [ -z "$BUILD_IMAGES" ] || [ "$BUILD_IMAGES" == "yes" ]; then
         if [ -f "build-and-upload-images.sh" ]; then
-            echo "⏳ Building images (see log for details)..."
-            CONFIRM=yes bash build-and-upload-images.sh >/dev/null 2>&1
+            echo "⏳ Building images (this may take 5-10 minutes)..."
+            echo "   💡 Progress shown below (or see log file for full details)"
+            echo ""
+            CONFIRM=yes bash build-and-upload-images.sh
+            echo ""
             echo "✅ Images built and uploaded to S3"
         else
             echo "⚠️  build-and-upload-images.sh not found"
