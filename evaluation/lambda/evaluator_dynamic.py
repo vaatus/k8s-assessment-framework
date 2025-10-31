@@ -708,24 +708,50 @@ class TaskEvaluator:
     def parse_test_results(self, logs):
         """Parse JSON results from test-runner logs"""
         try:
-            # Look for JSON in logs
-            for line in logs.split('\n'):
+            # Look for JSON in logs - handle both single-line and multi-line JSON
+            lines = logs.split('\n')
+
+            # Try to find JSON starting with { (single-line)
+            for line in lines:
                 line = line.strip()
-                if line.startswith('{'):
+                if line.startswith('{') and line.endswith('}'):
                     try:
                         data = json.loads(line)
                         if 'results' in data:
-                            print(f"Found results in JSON: {list(data['results'].keys())}")
+                            print(f"Found results in single-line JSON: {list(data['results'].keys())}")
                             return data['results']
-                    except json.JSONDecodeError as e:
-                        print(f"Failed to parse JSON line: {e}")
+                    except json.JSONDecodeError:
                         continue
 
+            # Try to parse multi-line JSON (collect lines between { and })
+            json_lines = []
+            in_json = False
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith('{'):
+                    in_json = True
+                    json_lines = [line]
+                elif in_json:
+                    json_lines.append(line)
+                    if stripped.endswith('}'):
+                        try:
+                            json_str = '\n'.join(json_lines)
+                            data = json.loads(json_str)
+                            if 'results' in data:
+                                print(f"Found results in multi-line JSON: {list(data['results'].keys())}")
+                                return data['results']
+                        except json.JSONDecodeError:
+                            pass
+                        in_json = False
+                        json_lines = []
+
             print("No valid JSON with 'results' key found in logs")
-            print(f"Log sample: {logs[:500]}")
+            print(f"Log sample (first 500 chars): {logs[:500]}")
             return {}
         except Exception as e:
             print(f"Error parsing test results: {e}")
+            import traceback
+            traceback.print_exc()
             return {}
 
     def calculate_score(self, results):

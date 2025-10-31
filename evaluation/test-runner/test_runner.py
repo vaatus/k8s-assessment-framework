@@ -228,7 +228,7 @@ def main():
         }
 
         print("\n=== TEST RESULTS ===")
-        print(json.dumps(output, indent=2))
+        print(json.dumps(output))
 
     except Exception as e:
         print(f"Fatal error: {e}", file=sys.stderr)
@@ -236,7 +236,7 @@ def main():
             'success': False,
             'error': str(e)
         }
-        print(json.dumps(output, indent=2))
+        print(json.dumps(output))
         sys.exit(1)
 
 
