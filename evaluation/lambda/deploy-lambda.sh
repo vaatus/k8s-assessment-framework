@@ -6,7 +6,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-LAMBDA_FUNCTION_NAME="k8s-evaluator"
+LAMBDA_FUNCTION_NAME="k8s-evaluation-function"
 ZIP_FILE="lambda-deployment.zip"
 
 echo "========================================"
