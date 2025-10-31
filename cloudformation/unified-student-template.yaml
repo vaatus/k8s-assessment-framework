@@ -261,6 +261,13 @@ Resources:
             apt-get update
             apt-get install -y curl wget git jq
 
+            # Install Docker
+            echo "Installing Docker..."
+            apt-get install -y docker.io
+            systemctl enable docker
+            systemctl start docker
+            usermod -aG docker ubuntu
+
             # Install K3s
             echo "Installing K3s..."
             curl -sfL https://get.k3s.io | sh -s - \
@@ -299,6 +306,16 @@ Resources:
             wget -q -O /tmp/kvstore.tar "https://${!IMAGES_BUCKET}.s3.us-east-1.amazonaws.com/${!IMAGES_PREFIX}/kvstore.tar" || \
               echo "Warning: kvstore image not found in S3, skipping..."
 
+            # Download backend image (for task-03)
+            echo "Downloading backend image..."
+            wget -q -O /tmp/backend.tar "https://${!IMAGES_BUCKET}.s3.us-east-1.amazonaws.com/${!IMAGES_PREFIX}/backend.tar" || \
+              echo "Warning: backend image not found in S3, skipping..."
+
+            # Download frontend image (for task-03)
+            echo "Downloading frontend image..."
+            wget -q -O /tmp/frontend.tar "https://${!IMAGES_BUCKET}.s3.us-east-1.amazonaws.com/${!IMAGES_PREFIX}/frontend.tar" || \
+              echo "Warning: frontend image not found in S3, skipping..."
+
             # Import images into K3s
             echo "Importing Docker images into K3s..."
             if [ -f /tmp/test-runner.tar ]; then
@@ -315,9 +332,23 @@ Resources:
               rm -f /tmp/kvstore.tar
             fi
 
+            if [ -f /tmp/backend.tar ]; then
+              k3s ctr images import /tmp/backend.tar && \
+                echo "✅ backend:latest imported successfully" || \
+                echo "❌ Failed to import backend image"
+              rm -f /tmp/backend.tar
+            fi
+
+            if [ -f /tmp/frontend.tar ]; then
+              k3s ctr images import /tmp/frontend.tar && \
+                echo "✅ frontend:latest imported successfully" || \
+                echo "❌ Failed to import frontend image"
+              rm -f /tmp/frontend.tar
+            fi
+
             # List imported images for verification
             echo "Available images in K3s:"
-            k3s ctr images ls | grep -E "test-runner|kvstore" || echo "No custom images found"
+            k3s ctr images ls | grep -E "test-runner|kvstore|backend|frontend" || echo "No custom images found"
 
             # Create task namespace
             echo "Creating task namespace: ${TaskSelection}..."
