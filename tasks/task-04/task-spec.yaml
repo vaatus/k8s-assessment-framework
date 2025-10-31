@@ -1,0 +1,90 @@
+task_id: "task-04"
+task_name: "ConfigMaps, Secrets, and Resource Management"
+task_type: "deployment"
+namespace: "task-04"
+
+description: |
+  Create a deployment that demonstrates:
+  - ConfigMap usage for application configuration
+  - Secrets for sensitive data
+  - Resource limits and requests
+  - Environment variables from multiple sources
+
+required_resources:
+  deployments:
+    - name: "config-demo-app"
+      replicas: 2
+      selector_labels:
+        app: "config-demo"
+      containers:
+        - name: "demo-app"
+          image_pattern: "nginx"
+          ports:
+            - containerPort: 80
+          resources:
+            limits_required: true
+          env_required:
+            - name: "APP_NAME"
+              source: "configmap"
+            - name: "DB_PASSWORD"
+              source: "secret"
+
+  services:
+    - name: "config-demo-service"
+      type: "ClusterIP"
+      selector_labels:
+        app: "config-demo"
+      ports:
+        - port: 80
+          targetPort: 80
+
+  configmaps:
+    - name: "app-config"
+      required_keys:
+        - "app.name"
+        - "app.environment"
+
+  secrets:
+    - name: "app-secrets"
+      required_keys:
+        - "db-password"
+
+scoring:
+  max_score: 100
+  criteria:
+    - id: "deployment_exists"
+      description: "Deployment 'config-demo-app' exists"
+      points: 15
+      required: true
+
+    - id: "replicas_correct"
+      description: "Deployment has 2 replicas"
+      points: 10
+
+    - id: "image_correct"
+      description: "Uses nginx image"
+      points: 10
+
+    - id: "resources_set"
+      description: "Resource limits and requests configured"
+      points: 20
+
+    - id: "labels_correct"
+      description: "Labels match selector"
+      points: 5
+
+    - id: "pods_running"
+      description: "All pods running"
+      points: 10
+
+    - id: "service_exists"
+      description: "Service 'config-demo-service' exists"
+      points: 10
+
+    - id: "configmap_exists"
+      description: "ConfigMap 'app-config' exists with required keys"
+      points: 10
+
+    - id: "secret_exists"
+      description: "Secret 'app-secrets' exists"
+      points: 10

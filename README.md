@@ -303,7 +303,8 @@ Place Kyverno policies in `policies/` directory and add to CloudFormation UserDa
 ### For Instructors
 - `FULL_SETUP_GUIDE.md` - Complete deployment and testing guide (basic system)
 - `MULTI_TASK_DEPLOYMENT_GUIDE.md` - Advanced multi-task system deployment
-- `tasks/task-spec-format.md` - Task specification format reference
+- `tasks/TASK_SPEC_GUIDE.md` - Quick guide to creating new tasks
+- `tasks/task-spec.example.yaml` - Heavily commented task spec template (Bitnami-style)
 
 ### For Students
 - `tasks/task-01/README.md` - NGINX deployment task
@@ -312,29 +313,24 @@ Place Kyverno policies in `policies/` directory and add to CloudFormation UserDa
 
 ### For Developers
 - `evaluation/test-runner/README.md` - Test-runner pod documentation
-- `evaluation/lambda/evaluator.py` - Simple evaluator (task-01 only)
-- `evaluation/lambda/evaluator_dynamic.py` - Dynamic evaluator (all tasks)
+- `evaluation/lambda/evaluator_dynamic.py` - Dynamic evaluator (production)
+- `evaluation/lambda/archived/` - Deprecated evaluators (reference only)
 
-## System Versions
+## System Architecture
 
-### Simple System (v1.0)
-- Single evaluator: `evaluator.py`
-- Supports: task-01 only
-- Evaluation: Kubernetes resource validation
-- Suitable for: Basic deployment tasks
-
-### Advanced System (v2.0)
-- Dynamic evaluator: `evaluator_dynamic.py`
-- Supports: task-01, task-02, task-03, and custom tasks
-- Evaluation: Resource validation + HTTP endpoint testing
-- Features: Test-runner pods, task specifications, flexible scoring
-- Suitable for: Complex, application-level tasks
-
-## Deployment Modes
-
-Choose during `deploy-complete-setup.sh`:
-1. **Simple mode**: Uses `evaluator.py` (faster, task-01 only)
-2. **Advanced mode**: Uses `evaluator_dynamic.py` (full features, all tasks)
+### Dynamic Evaluation System (v3.0 - Production)
+- **Evaluator**: `evaluator_dynamic.py` (fully dynamic, task-spec driven)
+- **Supported Tasks**: task-01, task-02, task-03, and custom tasks
+- **Evaluation Methods**:
+  - Kubernetes resource validation (Deployments, StatefulSets, Services, PVCs)
+  - HTTP endpoint testing (via test-runner pod)
+  - Probe configuration validation (liveness, startup, readiness)
+- **Features**:
+  - Task specifications loaded from S3 (YAML format)
+  - Test-runner pods execute HTTP checks inside cluster
+  - Fuzzy criterion matching for flexible scoring
+  - Extensible: Add tasks by creating YAML specs
+- **Status**: ✅ Production Ready (task-02 verified 100/100)
 
 ## License
 
@@ -348,7 +344,11 @@ This is a thesis project. For issues or feature requests, please open a GitHub i
 
 **Status**: Production Ready ✅
 
-- **Simple System**: Tested and verified (task-01)
-- **Advanced System**: Implemented and ready for testing (task-01, task-02, task-03)
+- **Dynamic Evaluation System**: Tested and verified
+  - ✅ task-01: NGINX deployment (resource validation)
+  - ✅ task-02: StatefulSet with HTTP testing (100/100 verified)
+  - ✅ task-03: Multi-service with probes (ready for testing)
+- **Infrastructure**: Fully automated deployment with logging
+- **Documentation**: Comprehensive guides with example-driven task specs
 
-Last updated: 2025-10-23
+Last updated: 2025-10-31

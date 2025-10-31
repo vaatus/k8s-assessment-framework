@@ -1,0 +1,67 @@
+# File Manifest - Guide Documentation Archive
+# Created: 2025-10-31
+# Purpose: Track original locations of moved guide files for restoration
+
+# This file contains the mapping of archived guide files to their original locations
+# Format: current_path -> original_path
+
+# =============================================================================
+# MOVED GUIDE FILES
+# =============================================================================
+
+# Main setup and deployment guides
+docs/guides/FULL_SETUP_GUIDE.md -> ./FULL_SETUP_GUIDE.md
+docs/guides/MULTI_TASK_DEPLOYMENT_GUIDE.md -> ./MULTI_TASK_DEPLOYMENT_GUIDE.md
+docs/guides/DYNAMIC_SETUP_TESTING_GUIDE.md -> ./DYNAMIC_SETUP_TESTING_GUIDE.md
+
+# Task specification documentation
+docs/guides/TASK_SPEC_GUIDE.md -> ./tasks/TASK_SPEC_GUIDE.md
+
+# Changelog
+docs/CHANGELOG.md -> ./CHANGELOG.md
+
+# =============================================================================
+# FILES KEPT IN ORIGINAL LOCATIONS
+# =============================================================================
+
+# Main project README (must stay in root for GitHub)
+# ./README.md -> NOT MOVED
+
+# Student task instructions (must stay with tasks)
+# ./tasks/task-01/README.md -> NOT MOVED
+# ./tasks/task-02/README.md -> NOT MOVED
+# ./tasks/task-03/README.md -> NOT MOVED
+
+# Technical documentation (stays with code)
+# ./evaluation/test-runner/README.md -> NOT MOVED
+# ./evaluation/lambda/archived/README.md -> NOT MOVED
+
+# =============================================================================
+# RESTORATION COMMANDS
+# =============================================================================
+
+# To restore all files to original locations:
+#
+# cd /home/taha/k8s-assessment-framework
+# mv docs/guides/FULL_SETUP_GUIDE.md ./
+# mv docs/guides/MULTI_TASK_DEPLOYMENT_GUIDE.md ./
+# mv docs/guides/DYNAMIC_SETUP_TESTING_GUIDE.md ./
+# mv docs/guides/TASK_SPEC_GUIDE.md ./tasks/
+# mv docs/CHANGELOG.md ./
+#
+# Or use the restoration script:
+# bash docs/restore-files.sh
+
+# =============================================================================
+# NOTES
+# =============================================================================
+
+# Reason for archiving:
+# - Clean up root directory
+# - Organize instructor guides in dedicated location
+# - Keep student-facing docs in place
+# - Maintain essential technical docs with code
+
+# Files moved: 5
+# Files kept in place: 6
+# Total documentation files: 11

@@ -1,0 +1,228 @@
+# =============================================================================
+# Task Specification Example
+# =============================================================================
+# This file shows all available options for defining evaluation tasks.
+# Format: YAML - heavily commented to guide task creation
+# Inspired by: Bitnami Helm values.yaml style
+# =============================================================================
+
+# -- Task metadata
+task_id: "task-01"                    # Unique identifier (matches namespace)
+task_name: "NGINX Web Deployment"     # Human-readable name
+task_type: "deployment"               # deployment | statefulset | daemonset | multi-service | custom
+namespace: "task-01"                  # Kubernetes namespace for this task
+
+# -- Task description (optional, for documentation)
+description: |
+  Deploy an NGINX web server with 2 replicas, proper labels, and resource limits.
+
+# =============================================================================
+# Required Kubernetes Resources
+# =============================================================================
+required_resources:
+
+  # -- Deployments to validate
+  deployments:
+    - name: "nginx-web"               # Deployment name to check
+      replicas: 2                     # Expected replica count
+      selector_labels:                # Labels to match pods
+        app: "nginx"
+      containers:
+        - name: "nginx"               # Container name (optional)
+          image_pattern: "nginx"      # Image must contain this string
+          ports:
+            - containerPort: 80       # Expected container port
+          resources:
+            limits_required: true     # Must have CPU and memory limits set
+      # -- Probe configuration (optional)
+      startup_probe:
+        required: true                # Check if startup probe exists
+        http_get:
+          path: "/startup"            # Expected probe path
+          port: 8080
+      liveness_probe:
+        required: true
+        http_get:
+          path: "/health"
+          port: 8080
+        period_seconds: 5             # Expected probe interval
+        failure_threshold: 3          # Expected failure threshold
+
+  # -- StatefulSets to validate
+  statefulsets:
+    - name: "key-value-svc"
+      replicas: 4
+      selector_labels:
+        app: "key-value"
+      volumeClaimTemplates:           # Check for PVCs
+        - name: "data"
+          min_storage: "1Mi"          # Minimum storage size
+      containers:
+        - name: "app"
+          ports:
+            - containerPort: 5000
+
+  # -- Services to validate
+  services:
+    - name: "nginx-service"
+      type: "NodePort"                # ClusterIP | NodePort | LoadBalancer
+      selector_labels:
+        app: "nginx"
+      ports:
+        - port: 80
+          targetPort: 80
+
+    - name: "key-value-headless"
+      type: "ClusterIP"
+      clusterIP: "None"               # Headless service (for StatefulSets)
+      selector_labels:
+        app: "key-value"
+
+# =============================================================================
+# Application-Level Checks (HTTP endpoints)
+# =============================================================================
+# Executed by test-runner pod inside the cluster
+application_checks:
+
+  # -- HTTP GET check
+  - check_id: "frontend_health"       # Unique identifier for this check
+    check_type: "http_get"            # http_get | http_post | data_persistence
+    service: "svc-frontend"           # Service name to target
+    port: 8080                        # Service port
+    path: "/health"                   # Endpoint path
+    namespace: ""                     # Auto-filled by evaluator
+    target_pod: ""                    # Optional: specific pod (e.g., "app-0")
+    expected_status: 200              # Expected HTTP status code
+    expected_body_contains: ""        # Optional: check response body
+    expected_json_fields:             # Optional: check JSON response has fields
+      - "name"
+      - "code"
+    timeout: 30                       # Request timeout in seconds
+    points: 10                        # Points for this check (deprecated, use scoring.criteria)
+    description: "Frontend health endpoint works"
+
+  # -- HTTP POST check
+  - check_id: "store_data"
+    check_type: "http_post"
+    target_pod: "key-value-svc-0"     # Target specific StatefulSet pod
+    service: "key-value-headless"
+    port: 5000
+    path: "/obj/testkey"
+    body: "testvalue"                 # POST body
+    expected_status: 200
+    timeout: 30
+    points: 15
+    description: "Can store data via HTTP POST"
+
+# =============================================================================
+# Probe Checks (validate probe configuration)
+# =============================================================================
+probe_checks:
+  - check_id: "startup_probe_configured"
+    check_type: "probe_exists"
+    deployment: "frontend"            # Deployment to check
+    probe_type: "startup"             # startup | liveness | readiness
+    path: "/startup"                  # Expected HTTP path
+    points: 10
+    description: "Startup probe configured correctly"
+
+  - check_id: "liveness_probe_configured"
+    check_type: "probe_exists"
+    deployment: "frontend"
+    probe_type: "liveness"
+    path: "/health"
+    period_seconds: 5                 # Validate probe interval
+    failure_threshold: 3              # Validate failure threshold
+    points: 10
+    description: "Liveness probe with correct parameters"
+
+# =============================================================================
+# Custom Checks (advanced validation, not fully implemented)
+# =============================================================================
+custom_checks:
+  - check_id: "data_persistence"
+    description: "Data persists after pod restart"
+    points: 20
+    validation_steps:                 # Manual steps (for documentation)
+      - store_data_in_pod_0
+      - delete_pod_0
+      - wait_for_pod_recreation
+      - verify_data_still_exists
+
+  - check_id: "graceful_shutdown"
+    description: "Frontend calls backend /game-over on shutdown"
+    points: 5
+    validation_steps:
+      - check_backend_game_over_not_called
+      - delete_frontend_pod
+      - wait_for_termination
+      - verify_backend_game_over_was_called
+
+# =============================================================================
+# Scoring Configuration
+# =============================================================================
+scoring:
+  max_score: 100                      # Maximum possible score
+  passing_score: 70                   # Minimum to pass (optional)
+
+  # -- Scoring criteria (order matters for display)
+  criteria:
+    - id: "deployment_exists"         # Must match result key from evaluator
+      description: "Deployment exists"
+      points: 20
+      required: true                  # Task fails if this check fails
+
+    - id: "replicas_correct"          # Maps to "deployment_nginx-web_replicas_correct"
+      description: "Correct replica count"
+      points: 15
+
+    - id: "image_correct"
+      description: "Correct image"
+      points: 15
+
+    - id: "resources_set"
+      description: "Resource limits set"
+      points: 20
+
+    - id: "labels_correct"
+      description: "Labels configured"
+      points: 10
+
+    - id: "pod_count_correct"
+      description: "Pod count matches replicas"
+      points: 10
+
+    - id: "pods_running"
+      description: "All pods running"
+      points: 10
+
+    # -- Application checks (match check_id from application_checks)
+    - id: "store_data"
+      description: "Can store data via POST"
+      points: 10
+
+    - id: "retrieve_data"
+      description: "Can retrieve stored data"
+      points: 10
+
+    - id: "data_persistence"
+      description: "Data persists after restart"
+      points: 20
+
+# =============================================================================
+# Notes:
+# =============================================================================
+# 1. Criterion IDs use fuzzy matching:
+#    - "deployment_exists" matches "deployment_nginx-web_exists"
+#    - "replicas_correct" matches "deployment_nginx-web_replicas_correct"
+#    - Exact match takes priority
+#
+# 2. Application checks are executed by test-runner pod inside cluster
+#
+# 3. Test-runner image must be pre-loaded in student K3s cluster
+#
+# 4. See actual task specs for working examples:
+#    - tasks/task-01/task-spec.yaml (simple deployment)
+#    - tasks/task-02/task-spec.yaml (statefulset with HTTP checks)
+#    - tasks/task-03/task-spec.yaml (multi-service with probes)
+# =============================================================================

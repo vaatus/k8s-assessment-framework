@@ -58,6 +58,7 @@ Parameters:
       - task-01
       - task-02
       - task-03
+      - task-04
     Description: Select the task assigned to you by your instructor
     ConstraintDescription: Choose your assigned task
 

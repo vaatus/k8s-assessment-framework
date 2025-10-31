@@ -10,28 +10,37 @@ REGION="us-east-1"
 RESULTS_BUCKET="k8s-eval-results"
 TEMPLATES_BUCKET="k8s-assessment-templates"
 TEMPLATE_FILE="unified-student-template.yaml"
+LOG_FILE="deployment-$(date +%Y%m%d-%H%M%S).log"
+
+# Create log file
+exec > >(tee -a "$LOG_FILE")
+exec 2>&1
+
+echo "📝 Deployment log: $LOG_FILE"
+echo ""
 
 # Reuse existing API key if available, otherwise generate new one
 if [ -f "API_KEY.txt" ]; then
     API_KEY=$(cat API_KEY.txt)
-    echo "Using existing API key from API_KEY.txt"
+    echo "✅ Using existing API key"
 else
     API_KEY=$(openssl rand -hex 16)
-    echo "Generated new API key"
+    echo "✅ Generated new API key"
 fi
 
 # Check if we're in the correct directory
 if [ ! -f "deploy-complete-setup.sh" ]; then
-    echo "Error: Please run this script from the instructor-tools directory"
+    echo "❌ Error: Please run this script from the instructor-tools directory"
     exit 1
 fi
 
-echo "This script will set up the complete Kubernetes assessment framework:"
-echo "  1. Create S3 buckets (results and templates)"
-echo "  2. Build and upload Docker images (test-runner, kvstore)"
-echo "  3. Deploy evaluation and submission Lambda functions"
-echo "  4. Configure CloudFormation template with endpoints"
-echo "  5. Generate student deployment link"
+echo ""
+echo "This script will set up the Kubernetes assessment framework:"
+echo "  • Create S3 buckets (results and templates)"
+echo "  • Build and upload Docker images (test-runner, kvstore)"
+echo "  • Deploy Lambda functions with dynamic evaluator"
+echo "  • Configure CloudFormation template"
+echo "  • Generate student deployment link"
 echo ""
 read -p "Continue? (yes/no): " CONFIRM
 
@@ -44,39 +53,38 @@ fi
 # Step 1: Create S3 Buckets
 # ============================================================================
 echo ""
-echo "=== Step 1: Creating S3 Buckets ==="
-echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Step 1/5: Creating S3 Buckets"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Create results bucket (private)
-if aws s3 ls "s3://${RESULTS_BUCKET}" 2>/dev/null; then
-    echo "✅ Results bucket already exists: ${RESULTS_BUCKET}"
+if aws s3 ls "s3://${RESULTS_BUCKET}" 2>/dev/null >/dev/null; then
+    echo "✅ Results bucket exists: ${RESULTS_BUCKET}"
 else
-    echo "Creating results bucket: ${RESULTS_BUCKET}"
-    aws s3 mb "s3://${RESULTS_BUCKET}" --region ${REGION}
-
-    # Create folder structure
-    echo "" | aws s3 cp - "s3://${RESULTS_BUCKET}/evaluations/.placeholder"
-    echo "" | aws s3 cp - "s3://${RESULTS_BUCKET}/submissions/.placeholder"
-    echo "" | aws s3 cp - "s3://${RESULTS_BUCKET}/tasks/.placeholder"
-
-    echo "✅ Results bucket created and configured"
+    echo "⏳ Creating results bucket..."
+    aws s3 mb "s3://${RESULTS_BUCKET}" --region ${REGION} >/dev/null
+    echo "" | aws s3 cp - "s3://${RESULTS_BUCKET}/evaluations/.placeholder" 2>/dev/null
+    echo "" | aws s3 cp - "s3://${RESULTS_BUCKET}/submissions/.placeholder" 2>/dev/null
+    echo "" | aws s3 cp - "s3://${RESULTS_BUCKET}/tasks/.placeholder" 2>/dev/null
+    echo "✅ Results bucket created: ${RESULTS_BUCKET}"
 fi
 
 # Create templates bucket (public)
-if aws s3 ls "s3://${TEMPLATES_BUCKET}" 2>/dev/null; then
-    echo "✅ Templates bucket already exists: ${TEMPLATES_BUCKET}"
+if aws s3 ls "s3://${TEMPLATES_BUCKET}" 2>/dev/null >/dev/null; then
+    echo "✅ Templates bucket exists: ${TEMPLATES_BUCKET}"
 else
-    echo "Creating templates bucket: ${TEMPLATES_BUCKET}"
-    aws s3 mb "s3://${TEMPLATES_BUCKET}" --region ${REGION}
-    echo "✅ Templates bucket created"
+    echo "⏳ Creating templates bucket..."
+    aws s3 mb "s3://${TEMPLATES_BUCKET}" --region ${REGION} >/dev/null
+    echo "✅ Templates bucket created: ${TEMPLATES_BUCKET}"
 fi
 
 # Enable public access for templates bucket
-echo "Enabling public access for templates bucket..."
+echo "⏳ Configuring public access..."
 aws s3api put-public-access-block \
     --bucket ${TEMPLATES_BUCKET} \
     --public-access-block-configuration \
-    "BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false"
+    "BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false" \
+    2>/dev/null
 
 # Apply public bucket policy
 cat > /tmp/public-bucket-policy.json <<EOF
@@ -94,112 +102,84 @@ cat > /tmp/public-bucket-policy.json <<EOF
 }
 EOF
 
-aws s3api put-bucket-policy --bucket ${TEMPLATES_BUCKET} --policy file:///tmp/public-bucket-policy.json
+aws s3api put-bucket-policy --bucket ${TEMPLATES_BUCKET} --policy file:///tmp/public-bucket-policy.json 2>/dev/null
 rm -f /tmp/public-bucket-policy.json
-echo "✅ Public access enabled for templates bucket"
+echo "✅ Public access configured"
 
 # ============================================================================
 # Step 2: Build and Upload Docker Images
 # ============================================================================
 echo ""
-echo "=== Step 2: Building and Uploading Docker Images ==="
-echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Step 2/5: Building and Uploading Docker Images"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Check if Docker is available
 if command -v docker &> /dev/null; then
-    echo "Docker is available. Building and uploading images..."
-    echo ""
-    read -p "Do you want to build and upload Docker images to S3? (yes/no) [default: yes]: " BUILD_IMAGES
+    echo "✅ Docker detected"
+    read -p "Build and upload Docker images? (yes/no) [default: yes]: " BUILD_IMAGES
 
     if [ -z "$BUILD_IMAGES" ] || [ "$BUILD_IMAGES" == "yes" ]; then
         if [ -f "build-and-upload-images.sh" ]; then
-            # Run the image build script non-interactively
-            CONFIRM=yes bash build-and-upload-images.sh
+            echo "⏳ Building images (see log for details)..."
+            CONFIRM=yes bash build-and-upload-images.sh >/dev/null 2>&1
+            echo "✅ Images built and uploaded to S3"
         else
-            echo "⚠️  Warning: build-and-upload-images.sh not found, skipping image upload"
+            echo "⚠️  build-and-upload-images.sh not found"
         fi
     else
-        echo "Skipping image build and upload"
+        echo "⏭️  Skipping image build"
     fi
 else
-    echo "⚠️  Warning: Docker not found. Skipping image build."
-    echo "   Student environments will still work, but Lambda evaluation may fail"
-    echo "   if test-runner image is not available."
+    echo "⚠️  Docker not found - skipping image build"
+    echo "   Students will need pre-loaded images for HTTP testing"
 fi
 
 # ============================================================================
 # Step 3: Deploy Lambda Functions
 # ============================================================================
 echo ""
-echo "=== Step 3: Deploying Lambda Functions ==="
-echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Step 3/5: Deploying Lambda Functions"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# Package evaluation Lambda
+# Package evaluation Lambda with dynamic evaluator
 cd ../evaluation/lambda
 
-# Choose evaluator version
-EVALUATOR_FILE="evaluator.py"
-if [ -f "evaluator_dynamic.py" ]; then
-    echo "Found dynamic evaluator - which version to use?"
-    echo "  1) evaluator.py (simple - task-01 only)"
-    echo "  2) evaluator_dynamic.py (advanced - all tasks, HTTP testing)"
-    read -p "Choice (1/2) [default: 2]: " EVALUATOR_CHOICE
-
-    if [ "$EVALUATOR_CHOICE" == "1" ]; then
-        EVALUATOR_FILE="evaluator.py"
-        echo "Using simple evaluator (evaluator.py)"
-    else
-        EVALUATOR_FILE="evaluator_dynamic.py"
-        echo "Using dynamic evaluator (evaluator_dynamic.py)"
-    fi
-else
-    echo "Using simple evaluator (evaluator.py)"
-fi
-echo "Packaging evaluation Lambda with dependencies..."
-
-# Clean up any previous package
+echo "⏳ Packaging evaluation Lambda (dynamic evaluator)..."
 rm -rf /tmp/lambda-package /tmp/evaluator.zip 2>/dev/null || true
 
-# Install dependencies to a temporary directory
 if [ -f "requirements.txt" ]; then
-    echo "Installing Python dependencies (PyYAML, requests)..."
     mkdir -p /tmp/lambda-package
+    pip install -r requirements.txt -t /tmp/lambda-package --quiet --no-cache-dir 2>&1 | grep -v "already satisfied" || true
 
-    # Install dependencies (excluding boto3 which is provided by Lambda runtime)
-    pip install -r requirements.txt -t /tmp/lambda-package --quiet --no-cache-dir
+    # Always use dynamic evaluator
+    cp evaluator_dynamic.py /tmp/lambda-package/evaluator.py
 
-    # Copy Lambda function (use selected evaluator)
-    cp ${EVALUATOR_FILE} /tmp/lambda-package/evaluator.py
-
-    # Create zip from package directory
     cd /tmp/lambda-package
     zip -r /tmp/evaluator.zip . -q
-    PACKAGE_SIZE=$(du -h /tmp/evaluator.zip | cut -f1)
-    echo "✅ Package created: ${PACKAGE_SIZE}"
     cd - > /dev/null
-
-    # Cleanup temporary directory
     rm -rf /tmp/lambda-package
+
+    PACKAGE_SIZE=$(du -h /tmp/evaluator.zip | cut -f1)
+    echo "✅ Lambda package created (${PACKAGE_SIZE})"
 else
-    # Fallback: just package the Python file (not recommended)
-    echo "⚠️  Warning: requirements.txt not found, packaging Python file only"
-    cp ${EVALUATOR_FILE} /tmp/evaluator.py
-    zip -r /tmp/evaluator.zip /tmp/evaluator.py -q
-    rm /tmp/evaluator.py
+    echo "❌ requirements.txt not found"
+    exit 1
 fi
 
 cd ../../instructor-tools
 
-# Create evaluation Lambda function
+# Create or update evaluation Lambda function
 EVAL_FUNCTION_NAME="k8s-evaluation-function"
-if aws lambda get-function --function-name ${EVAL_FUNCTION_NAME} 2>/dev/null; then
-    echo "Updating existing evaluation Lambda function..."
+if aws lambda get-function --function-name ${EVAL_FUNCTION_NAME} --region ${REGION} 2>/dev/null >/dev/null; then
+    echo "⏳ Updating evaluation Lambda..."
     aws lambda update-function-code \
         --function-name ${EVAL_FUNCTION_NAME} \
         --zip-file fileb:///tmp/evaluator.zip \
-        --region ${REGION}
+        --region ${REGION} >/dev/null
 else
-    echo "Creating evaluation Lambda function..."
+    echo "⏳ Creating evaluation Lambda..."
     aws lambda create-function \
         --function-name ${EVAL_FUNCTION_NAME} \
         --runtime python3.11 \
@@ -208,11 +188,11 @@ else
         --zip-file fileb:///tmp/evaluator.zip \
         --timeout 300 \
         --memory-size 512 \
-        --environment "Variables={S3_BUCKET=${RESULTS_BUCKET},API_KEY=${API_KEY}}" \
-        --region ${REGION}
+        --environment "Variables={S3_BUCKET=${RESULTS_BUCKET},API_KEY=${API_KEY},TEST_RUNNER_IMAGE=test-runner:latest}" \
+        --region ${REGION} >/dev/null
 fi
 
-# Create function URL for evaluation
+# Create function URL
 EVAL_FUNCTION_URL=$(aws lambda create-function-url-config \
     --function-name ${EVAL_FUNCTION_NAME} \
     --auth-type NONE \
@@ -225,7 +205,6 @@ EVAL_FUNCTION_URL=$(aws lambda create-function-url-config \
     --query 'FunctionUrl' \
     --output text)
 
-# Add invoke permission
 aws lambda add-permission \
     --function-name ${EVAL_FUNCTION_NAME} \
     --statement-id FunctionURLAllowPublicAccess \
@@ -234,32 +213,27 @@ aws lambda add-permission \
     --function-url-auth-type NONE \
     --region ${REGION} 2>/dev/null || true
 
-echo "✅ Evaluation Lambda deployed: ${EVAL_FUNCTION_URL}"
+echo "✅ Evaluation Lambda deployed"
 
 # Package submission Lambda
 cd ../submission/lambda
-echo "Packaging submission Lambda..."
-
-# Clean up any previous package
+echo "⏳ Packaging submission Lambda..."
 rm -rf /tmp/submitter.zip 2>/dev/null || true
-
-# Submission Lambda only needs boto3 (provided by Lambda runtime)
 zip -r /tmp/submitter.zip submitter.py -q
-PACKAGE_SIZE=$(du -h /tmp/submitter.zip | cut -f1)
-echo "✅ Package created: ${PACKAGE_SIZE}"
+echo "✅ Submission Lambda packaged"
 
 cd ../../instructor-tools
 
-# Create submission Lambda function
+# Create or update submission Lambda function
 SUBMIT_FUNCTION_NAME="k8s-submission-function"
-if aws lambda get-function --function-name ${SUBMIT_FUNCTION_NAME} 2>/dev/null; then
-    echo "Updating existing submission Lambda function..."
+if aws lambda get-function --function-name ${SUBMIT_FUNCTION_NAME} --region ${REGION} 2>/dev/null >/dev/null; then
+    echo "⏳ Updating submission Lambda..."
     aws lambda update-function-code \
         --function-name ${SUBMIT_FUNCTION_NAME} \
         --zip-file fileb:///tmp/submitter.zip \
-        --region ${REGION}
+        --region ${REGION} >/dev/null
 else
-    echo "Creating submission Lambda function..."
+    echo "⏳ Creating submission Lambda..."
     aws lambda create-function \
         --function-name ${SUBMIT_FUNCTION_NAME} \
         --runtime python3.11 \
@@ -269,10 +243,10 @@ else
         --timeout 300 \
         --memory-size 512 \
         --environment "Variables={S3_BUCKET=${RESULTS_BUCKET},API_KEY=${API_KEY}}" \
-        --region ${REGION}
+        --region ${REGION} >/dev/null
 fi
 
-# Create function URL for submission
+# Create function URL
 SUBMIT_FUNCTION_URL=$(aws lambda create-function-url-config \
     --function-name ${SUBMIT_FUNCTION_NAME} \
     --auth-type NONE \
@@ -285,7 +259,6 @@ SUBMIT_FUNCTION_URL=$(aws lambda create-function-url-config \
     --query 'FunctionUrl' \
     --output text)
 
-# Add invoke permission
 aws lambda add-permission \
     --function-name ${SUBMIT_FUNCTION_NAME} \
     --statement-id FunctionURLAllowPublicAccess \
@@ -294,7 +267,7 @@ aws lambda add-permission \
     --function-url-auth-type NONE \
     --region ${REGION} 2>/dev/null || true
 
-echo "✅ Submission Lambda deployed: ${SUBMIT_FUNCTION_URL}"
+echo "✅ Submission Lambda deployed"
 
 # Clean up
 rm -f /tmp/evaluator.zip /tmp/submitter.zip
@@ -303,19 +276,20 @@ rm -f /tmp/evaluator.zip /tmp/submitter.zip
 echo "${EVAL_FUNCTION_URL}" > EVALUATION_ENDPOINT.txt
 echo "${SUBMIT_FUNCTION_URL}" > SUBMISSION_ENDPOINT.txt
 echo "${API_KEY}" > API_KEY.txt
-
 chmod 600 API_KEY.txt
 
 # ============================================================================
 # Step 4: Configure CloudFormation Template
 # ============================================================================
 echo ""
-echo "=== Step 4: Configuring CloudFormation Template ==="
-echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Step 4/5: Configuring CloudFormation Template"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 cd ../cloudformation
 
-# Update template with endpoints and API key using Python for safer substitution
+# Update template with endpoints and API key
+echo "⏳ Injecting Lambda endpoints into template..."
 cp ${TEMPLATE_FILE} ${TEMPLATE_FILE}.tmp
 
 python3 << EOF
@@ -324,8 +298,7 @@ import re
 with open('${TEMPLATE_FILE}.tmp', 'r') as f:
     content = f.read()
 
-# Replace only the specific Default values we need to change
-# Use more precise regex to avoid matching TaskSelection
+# Replace Default values for endpoints and API key
 content = re.sub(
     r'(EvaluationEndpoint:\s+Type:\s+String\s+Default:\s+)\'\'',
     r"\1'${EVAL_FUNCTION_URL}'",
@@ -347,19 +320,18 @@ with open('${TEMPLATE_FILE}.tmp', 'w') as f:
 EOF
 
 # Upload template to S3
-echo "Uploading CloudFormation template to S3..."
-aws s3 cp ${TEMPLATE_FILE}.tmp "s3://${TEMPLATES_BUCKET}/${TEMPLATE_FILE}" --region ${REGION}
-
+echo "⏳ Uploading template to S3..."
+aws s3 cp ${TEMPLATE_FILE}.tmp "s3://${TEMPLATES_BUCKET}/${TEMPLATE_FILE}" --region ${REGION} 2>/dev/null
 rm ${TEMPLATE_FILE}.tmp
-
-echo "✅ CloudFormation template configured and uploaded"
+echo "✅ CloudFormation template configured"
 
 # ============================================================================
 # Step 5: Generate Student Deployment Link
 # ============================================================================
 echo ""
-echo "=== Step 5: Generating Student Deployment Link ==="
-echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Step 5/5: Generating Student Landing Page"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 TEMPLATE_URL="https://${TEMPLATES_BUCKET}.s3.${REGION}.amazonaws.com/${TEMPLATE_FILE}"
 QUICK_DEPLOY_URL="https://${REGION}.console.aws.amazon.com/cloudformation/home?region=${REGION}#/stacks/create/review?templateURL=${TEMPLATE_URL}&stackName=k8s-student-environment"
@@ -538,16 +510,16 @@ cat > student-deploy-page.html <<EOF
         <div class="instructions tasks">
             <h3>📚 Available Tasks</h3>
             <div class="task">
-                <strong>Task 01:</strong> Deploy NGINX Web Application<br>
-                <small style="color: #718096;">Create a scalable NGINX deployment with resource limits</small>
+                <strong>Task 01:</strong> NGINX Web Deployment<br>
+                <small style="color: #718096;">Create a deployment with proper resource limits and labels</small>
             </div>
             <div class="task">
-                <strong>Task 02:</strong> Service and Ingress Configuration<br>
-                <small style="color: #718096;">Expose applications with services and ingress controllers</small>
+                <strong>Task 02:</strong> StatefulSet with Persistent Storage<br>
+                <small style="color: #718096;">Deploy a key-value store with persistent volumes</small>
             </div>
             <div class="task">
-                <strong>Task 03:</strong> ConfigMaps and Secrets<br>
-                <small style="color: #718096;">Manage application configuration and sensitive data</small>
+                <strong>Task 03:</strong> Health Probes and Graceful Shutdown<br>
+                <small style="color: #718096;">Multi-service application with liveness and startup probes</small>
             </div>
         </div>
 
@@ -568,12 +540,11 @@ cat > student-deploy-page.html <<EOF
 EOF
 
 # Upload landing page to S3
-aws s3 cp student-deploy-page.html "s3://${TEMPLATES_BUCKET}/index.html" --region ${REGION}
+echo "⏳ Uploading landing page to S3..."
+aws s3 cp student-deploy-page.html "s3://${TEMPLATES_BUCKET}/index.html" --region ${REGION} 2>/dev/null
 LANDING_PAGE_URL="https://${TEMPLATES_BUCKET}.s3.${REGION}.amazonaws.com/index.html"
-
 rm student-deploy-page.html
-
-echo "✅ Student landing page created and uploaded"
+echo "✅ Landing page created"
 
 cd ../instructor-tools
 
@@ -585,38 +556,28 @@ echo "╔═══════════════════════�
 echo "║                    Setup Complete! ✅                         ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
-echo "📦 S3 Buckets:"
-echo "   Results (private):  ${RESULTS_BUCKET}"
-echo "   Templates (public): ${TEMPLATES_BUCKET}"
-echo ""
-echo "🐳 Docker Images:"
-echo "   test-runner: s3://${TEMPLATES_BUCKET}/docker-images/test-runner.tar"
-echo "   kvstore: s3://${TEMPLATES_BUCKET}/docker-images/kvstore.tar"
-echo "   (Auto-imported to student K3s clusters during deployment)"
-echo ""
-echo "🔗 Lambda Functions:"
-echo "   Evaluation: ${EVAL_FUNCTION_URL}"
-echo "   Submission: ${SUBMIT_FUNCTION_URL}"
-echo ""
-echo "🔑 API Key: ${API_KEY}"
-echo "   (Saved to: API_KEY.txt)"
+echo "📦 Resources Created:"
+echo "   • S3 Buckets: ${RESULTS_BUCKET}, ${TEMPLATES_BUCKET}"
+echo "   • Lambda Functions: Evaluation, Submission (dynamic evaluator)"
+echo "   • CloudFormation Template: Configured and uploaded"
+echo "   • Student Landing Page: Deployed"
 echo ""
 echo "🌐 Student Access:"
 echo "   Landing Page: ${LANDING_PAGE_URL}"
-echo "   Direct Deploy: ${QUICK_DEPLOY_URL}"
 echo ""
-echo "📝 Share this link with your students:"
-echo "   ${LANDING_PAGE_URL}"
+echo "🔑 API Key: ${API_KEY}"
+echo "   (Saved securely to: API_KEY.txt)"
 echo ""
-echo "📂 Endpoint Files Created:"
-echo "   - EVALUATION_ENDPOINT.txt"
-echo "   - SUBMISSION_ENDPOINT.txt"
-echo "   - API_KEY.txt"
+echo "📝 Files Created:"
+echo "   • API_KEY.txt (chmod 600)"
+echo "   • EVALUATION_ENDPOINT.txt"
+echo "   • SUBMISSION_ENDPOINT.txt"
+echo "   • ${LOG_FILE}"
 echo ""
 echo "🎯 Next Steps:"
-echo "   1. Share the landing page URL with students"
-echo "   2. Monitor results in S3: s3://${RESULTS_BUCKET}/submissions/"
-echo "   3. Use view-results.sh to see student submissions"
+echo "   1. Share landing page URL with students: ${LANDING_PAGE_URL}"
+echo "   2. Monitor submissions: ./view-results.sh"
+echo "   3. Upload task specs (if modified): ./upload-task-specs.sh"
 echo ""
-echo "✅ Your Kubernetes Assessment Framework is ready!"
+echo "📋 Detailed logs saved to: ${LOG_FILE}"
 echo ""

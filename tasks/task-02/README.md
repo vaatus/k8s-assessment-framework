@@ -2,7 +2,7 @@
 
 ## Overview
 
-In this task, you will create a StatefulSet for a key-value store application with persistent storage using PersistentVolumeClaims.
+In this task, you will create a **StatefulSet** for a key-value store application with persistent storage. Unlike Deployments, StatefulSets maintain stable network identities and persistent storage for each pod.
 
 ## Learning Objectives
 
@@ -11,296 +11,376 @@ In this task, you will create a StatefulSet for a key-value store application wi
 - Work with headless services for stable network identities
 - Implement data persistence across pod restarts
 
+## 🎯 Requirements
+
+Your task is to deploy a distributed key-value store with the following specifications:
+
+### StatefulSet Requirements
+- **Name**: `key-value-svc`
+- **Replicas**: 4 pods
+- **Namespace**: `task-02`
+- **Labels**: `app: key-value`
+- **Image**: `kvstore:latest` (pre-loaded in your cluster)
+- **Port**: Container port 5000
+
+### Storage Requirements
+- Each pod must have its own persistent storage
+- **Volume name**: `data`
+- **Mount path**: `/data`
+- **Minimum size**: 1Mi
+- **Access mode**: ReadWriteOnce
+
+### Service Requirements
+- **Service name**: `key-value-headless`
+- **Service type**: Headless (ClusterIP: None)
+- **Purpose**: Enable stable DNS names for each pod
+
+### Application Behavior
+The key-value store application should:
+- Store data via: `POST /obj/<key>`
+- Retrieve data via: `GET /obj/<key>`
+- Return location via: `GET /location/<key>`
+- Persist data across pod restarts
+
 ## 📦 Pre-loaded Docker Image
 
-A key-value store application image has been **pre-loaded** into your K3s cluster:
-- **Image name**: `kvstore:latest`
-- **Image location**: Already imported to K3s (no pull needed)
-- **Important**: Use `imagePullPolicy: Never` in your YAML to use the local image
+A key-value store application image is **already available** in your K3s cluster:
 
-You can verify the image is available:
 ```bash
+# Verify the image is available
 sudo k3s ctr images ls | grep kvstore
 # Should show: docker.io/library/kvstore:latest
 ```
 
-## Requirements
+**Important**: When using this image, you must set `imagePullPolicy: Never` to use the local image instead of pulling from a registry.
 
-Create a Stateful application with the following specifications:
+## 🔧 Getting Started
 
-### 1. StatefulSet Configuration
+### Step 1: Understand StatefulSets
 
-- **Name**: `key-value-svc`
-- **Replicas**: 4
-- **Namespace**: `task-02`
-- **Labels**: `app: key-value`
+StatefulSets are different from Deployments:
+- **Stable Identity**: Pods have predictable names (e.g., `app-0`, `app-1`, `app-2`)
+- **Ordered Deployment**: Pods are created in sequence (0, 1, 2, ...)
+- **Persistent Storage**: Each pod gets its own PersistentVolumeClaim
+- **Stable Network**: Each pod has a stable DNS name
 
-### 2. Container Specifications
+**When to use StatefulSets:**
+- Databases (PostgreSQL, MySQL, MongoDB)
+- Distributed systems (Kafka, Elasticsearch, etcd)
+- Applications requiring stable storage or network identity
 
-- **Container Name**: `app`
-- **Image**: `kvstore:latest` (pre-loaded image)
-- **ImagePullPolicy**: `Never` (use local image, don't pull)
-- **Port**: 5000
-- **Environment**: Set `POD_NAME` from `metadata.name` (for tracking)
-
-### 3. Persistent Storage
-
-- **VolumeClaimTemplate Name**: `data`
-- **Storage**: At least 1Mi
-- **Purpose**: Store key-value pairs persistently
-
-### 4. Headless Service
-
-- **Name**: `key-value-headless`
-- **Type**: ClusterIP
-- **ClusterIP**: None (headless)
-- **Selector**: `app: key-value`
-- **Purpose**: Enable pod-to-pod communication with stable DNS names
-
-## Application Endpoints
-
-Your key-value store application should implement:
-
-- `POST /obj/<key>` - Store a value under the given key
-- `GET /obj/<key>` - Retrieve the value for the given key
-- `GET /location/<key>` - Return which pod stores the given key
-
-## Evaluation Criteria (100 points)
-
-| Criterion | Points | Description |
-|-----------|--------|-------------|
-| **StatefulSet Exists** | 15 | StatefulSet 'key-value-svc' created |
-| **Replica Count** | 10 | Exactly 4 replicas configured |
-| **PVCs Created** | 15 | PersistentVolumeClaims exist for all pods |
-| **Headless Service** | 10 | Headless service exists and is configured correctly |
-| **Pods Running** | 10 | All 4 pods are in Running state |
-| **Store Data** | 10 | Can store data via POST /obj/<key> |
-| **Retrieve Data** | 10 | Can retrieve stored data via GET /obj/<key> |
-| **Data Persistence** | 20 | Data survives pod restart |
-
-## Getting Started
-
-### Step 1: Create the Namespace
+### Step 2: Create the Namespace
 
 ```bash
 kubectl create namespace task-02
 ```
 
-### Step 2: Create StatefulSet Manifest
+### Step 3: Design Your Headless Service
 
-Create a file named `statefulset.yaml`:
+A **headless service** (ClusterIP: None) doesn't load-balance traffic. Instead, it creates DNS records for each pod.
 
-```yaml
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: key-value-svc
-  namespace: task-02
-spec:
-  serviceName: "key-value-headless"
-  replicas: 4
-  selector:
-    matchLabels:
-      app: key-value
-  template:
-    metadata:
-      labels:
-        app: key-value
-    spec:
-      containers:
-      - name: app
-        image: kvstore:latest              # Pre-loaded image
-        imagePullPolicy: Never             # Use local image
-        ports:
-        - containerPort: 5000
-          name: http
-        env:
-        - name: POD_NAME                   # For tracking which pod stores data
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        volumeMounts:
-        - name: data
-          mountPath: /data
-  volumeClaimTemplates:
-  - metadata:
-      name: data
-    spec:
-      accessModes: [ "ReadWriteOnce" ]
-      resources:
-        requests:
-          storage: 1Mi
+**DNS pattern for StatefulSet pods:**
+```
+<pod-name>.<service-name>.<namespace>.svc.cluster.local
 ```
 
-### Step 3: Create Headless Service
-
-Create a file named `service.yaml`:
-
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: key-value-headless
-  namespace: task-02
-spec:
-  clusterIP: None  # Headless service
-  selector:
-    app: key-value
-  ports:
-  - port: 5000
-    targetPort: 5000
-    name: http
+**Example for your task:**
+```
+key-value-svc-0.key-value-headless.task-02.svc.cluster.local
+key-value-svc-1.key-value-headless.task-02.svc.cluster.local
+key-value-svc-2.key-value-headless.task-02.svc.cluster.local
+key-value-svc-3.key-value-headless.task-02.svc.cluster.local
 ```
 
-### Step 4: Deploy Your Solution
+**What you need to define:**
+- `apiVersion`: v1
+- `kind`: Service
+- `metadata.name`: (the service name from requirements)
+- `metadata.namespace`: task-02
+- `spec.clusterIP`: None (makes it headless)
+- `spec.selector`: Match your pod labels
+- `spec.ports`: Define the port mapping
+
+**Hint**: The selector must match the labels in your StatefulSet's pod template.
+
+### Step 4: Design Your StatefulSet
+
+A StatefulSet requires several key components:
+
+#### A. Basic Metadata
+- Define `apiVersion: apps/v1`
+- Define `kind: StatefulSet`
+- Set the name and namespace
+
+#### B. Spec Configuration
+- `serviceName`: Must match your headless service name
+- `replicas`: How many pods you need
+- `selector.matchLabels`: Must match pod template labels
+
+#### C. Pod Template
+This defines what each pod looks like:
+
+**Labels**: Set in `template.metadata.labels`
+- Must match the `selector.matchLabels`
+
+**Container Configuration**:
+- `name`: Give your container a name (e.g., "app")
+- `image`: Use `kvstore:latest`
+- `imagePullPolicy`: Must be `Never` (uses local image)
+- `ports`: Expose containerPort 5000
+
+**Environment Variables** (optional but useful):
+- You can inject the pod name using the Downward API:
+  ```yaml
+  env:
+  - name: POD_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.name
+  ```
+
+**Volume Mounts**:
+- `name`: Reference the volume claim template name
+- `mountPath`: Where to mount the storage inside the container
+
+#### D. Volume Claim Templates
+
+This is what makes StatefulSets unique! Each pod gets its own PersistentVolumeClaim.
+
+**Structure**:
+```yaml
+volumeClaimTemplates:
+- metadata:
+    name: <volume-name>
+  spec:
+    accessModes: [ <access-mode> ]
+    resources:
+      requests:
+        storage: <size>
+```
+
+**Access Modes**:
+- `ReadWriteOnce` (RWO): Mount by single node (most common)
+- `ReadOnlyMany` (ROX): Mount read-only by multiple nodes
+- `ReadWriteMany` (RWX): Mount read-write by multiple nodes
+
+**For this task**: Use `ReadWriteOnce` with 1Mi storage.
+
+### Step 5: Create Your YAML Files
+
+Create two separate files:
+
+**service.yaml** - Define your headless service
+**statefulset.yaml** - Define your StatefulSet with volume claim templates
+
+**Tips**:
+- Use proper indentation (2 spaces in YAML)
+- Ensure label selectors match exactly
+- Reference the correct image with `imagePullPolicy: Never`
+- Mount the volume to `/data` path
+
+### Step 6: Deploy Your Resources
+
+Deploy in this order:
 
 ```bash
+# 1. Create the service first (required by StatefulSet)
 kubectl apply -f service.yaml
+
+# 2. Create the StatefulSet
 kubectl apply -f statefulset.yaml
+
+# 3. Watch the pods come up in sequence
+kubectl get pods -n task-02 -w
 ```
 
-### Step 5: Verify Deployment
+**Expected behavior**:
+- Pods are created sequentially: 0, then 1, then 2, then 3
+- Each pod waits for the previous one to be Running before starting
+- Each pod gets its own PVC: `data-key-value-svc-0`, `data-key-value-svc-1`, etc.
+
+### Step 7: Verify Your Deployment
+
+Check all resources:
 
 ```bash
-# Check StatefulSet
+# Check StatefulSet status
 kubectl get statefulset -n task-02
 
-# Check Pods
+# Check pods (should see 4 pods: -0, -1, -2, -3)
 kubectl get pods -n task-02
 
-# Check PVCs
+# Check PVCs (should see 4 PVCs, one per pod)
 kubectl get pvc -n task-02
 
-# Check Service
+# Check the headless service
 kubectl get service -n task-02
 ```
 
-Expected output:
-```
-NAME             READY   AGE
-key-value-svc    4/4     2m
+**Success indicators**:
+- StatefulSet shows 4/4 ready
+- All 4 pods are in Running state
+- 4 PVCs exist and are Bound
+- Service shows ClusterIP: None
 
-NAME                READY   STATUS    RESTARTS   AGE
-key-value-svc-0     1/1     Running   0          2m
-key-value-svc-1     1/1     Running   0          2m
-key-value-svc-2     1/1     Running   0          2m
-key-value-svc-3     1/1     Running   0          2m
+### Step 8: Test Your Application
 
-NAME                     STATUS   VOLUME   CAPACITY   ACCESS MODES   STORAGECLASS   AGE
-data-key-value-svc-0     Bound    pvc-xxx  1Mi        RWO            local-path     2m
-data-key-value-svc-1     Bound    pvc-xxx  1Mi        RWO            local-path     2m
-data-key-value-svc-2     Bound    pvc-xxx  1Mi        RWO            local-path     2m
-data-key-value-svc-3     Bound    pvc-xxx  1Mi        RWO            local-path     2m
-
-NAME                  TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)    AGE
-key-value-headless    ClusterIP   None         <none>        5000/TCP   2m
-```
-
-## Testing Your Application
-
-### Test Data Storage (from within the cluster)
+Test data storage and retrieval:
 
 ```bash
-# Store a value
-kubectl run -it --rm test --image=curlimages/curl --restart=Never -n task-02 -- \
-  curl -X POST http://key-value-svc-0.key-value-headless.task-02.svc.cluster.local:5000/obj/testkey \
-  -d "testvalue"
-
-# Retrieve the value
-kubectl run -it --rm test --image=curlimages/curl --restart=Never -n task-02 -- \
-  curl http://key-value-svc-0.key-value-headless.task-02.svc.cluster.local:5000/obj/testkey
-```
-
-### Test Data Persistence
-
-```bash
-# Store data in pod-0
+# Test 1: Store data in pod-0
 kubectl exec -n task-02 key-value-svc-0 -- \
-  curl -X POST http://localhost:5000/obj/persisttest -d "mydata"
+  curl -X POST http://localhost:5000/obj/testkey -d "Hello World"
 
-# Delete pod-0
+# Test 2: Retrieve data from pod-0
+kubectl exec -n task-02 key-value-svc-0 -- \
+  curl http://localhost:5000/obj/testkey
+
+# Should return: Hello World
+```
+
+Test DNS resolution:
+
+```bash
+# Test pod-to-pod communication via DNS
+kubectl run -it --rm test --image=busybox --restart=Never -n task-02 -- \
+  nslookup key-value-svc-0.key-value-headless.task-02.svc.cluster.local
+```
+
+### Step 9: Test Data Persistence
+
+This is the critical test - data must survive pod restarts:
+
+```bash
+# 1. Store important data
+kubectl exec -n task-02 key-value-svc-0 -- \
+  curl -X POST http://localhost:5000/obj/persistent-test -d "Important Data"
+
+# 2. Delete the pod
 kubectl delete pod key-value-svc-0 -n task-02
 
-# Wait for pod to recreate
+# 3. Wait for pod to recreate (StatefulSet controller does this automatically)
 kubectl wait --for=condition=Ready pod/key-value-svc-0 -n task-02 --timeout=60s
 
-# Check if data still exists
+# 4. Check if data still exists
 kubectl exec -n task-02 key-value-svc-0 -- \
-  curl http://localhost:5000/obj/persisttest
-# Should return: mydata
+  curl http://localhost:5000/obj/persistent-test
+
+# Should return: Important Data ✅
 ```
 
-## Request Evaluation
+**Why does this work?**
+- The PVC remains bound even when the pod is deleted
+- When the StatefulSet recreates the pod, it reattaches the same PVC
+- Your data in `/data` is preserved
 
-Once your solution is deployed and tested:
+## 🎓 Learning Resources
+
+### Key Concepts
+
+**StatefulSet vs Deployment**:
+- **Deployment**: Pods are interchangeable, random names
+- **StatefulSet**: Pods have identity, predictable names
+
+**PersistentVolumeClaim (PVC)**:
+- A request for storage by a pod
+- Binds to a PersistentVolume (PV)
+- Survives pod deletion
+
+**Headless Service**:
+- No cluster IP assigned
+- Creates DNS records for each pod
+- Used for direct pod-to-pod communication
+
+### Common Pitfalls
+
+❌ **Forgetting `imagePullPolicy: Never`**
+- Result: Pod tries to pull from Docker Hub and fails
+
+❌ **Mismatched labels**
+- Result: Service can't find pods, selector doesn't match
+
+❌ **Wrong service name in StatefulSet**
+- Result: StatefulSet can't create pods, missing serviceName
+
+❌ **Incorrect volumeMount name**
+- Result: Volume not mounted, data not persistent
+
+## 📊 Evaluation Criteria (100 points)
+
+Your solution will be evaluated on:
+
+| Criterion | Points | Check |
+|-----------|--------|-------|
+| **StatefulSet exists** | 15 | StatefulSet 'key-value-svc' created |
+| **Replica count** | 10 | Exactly 4 replicas |
+| **PVCs created** | 15 | 4 PVCs exist (one per pod) |
+| **Headless service** | 10 | Service is headless and configured |
+| **Pods running** | 10 | All 4 pods in Running state |
+| **Store data** | 10 | POST /obj/key works |
+| **Retrieve data** | 10 | GET /obj/key returns stored data |
+| **Data persistence** | 20 | Data survives pod restart |
+
+## 🚀 Request Evaluation
+
+When you're ready:
 
 ```bash
 ~/student-tools/request-evaluation.sh task-02
 ```
 
-Review the results. If you're satisfied with your score:
+Review your score. If satisfied:
 
 ```bash
 ~/student-tools/submit-final.sh task-02
 ```
 
-## Tips
+## 🧹 Clean Up (Optional)
 
-1. **StatefulSet vs Deployment**: StatefulSets provide stable network identities and persistent storage
-2. **Pod Naming**: StatefulSet pods are named predictably: `<statefulset-name>-<ordinal>`
-3. **Headless Service**: Required for StatefulSets to provide stable DNS names
-4. **PVC Lifecycle**: PVCs are not automatically deleted when you delete the StatefulSet
-5. **Storage Class**: K3s provides `local-path` storage class by default
-
-## Clean Up PVCs
-
-When you're done, delete the StatefulSet AND the PVCs:
+When finished experimenting:
 
 ```bash
-# Delete StatefulSet
+# Delete the StatefulSet
 kubectl delete statefulset key-value-svc -n task-02
 
-# Delete PVCs
+# PVCs are NOT automatically deleted (by design)
+# Delete them manually if you want to clean up
 kubectl delete pvc -l app=key-value -n task-02
 ```
 
-## Common Issues
+## 💡 Hints
 
-### Pods Stuck in Pending
+<details>
+<summary>Hint 1: StatefulSet serviceName field</summary>
 
-```bash
-kubectl describe pod key-value-svc-0 -n task-02
-```
+The `serviceName` field in the StatefulSet spec must match your headless service name exactly. This is how Kubernetes knows which service to use for creating DNS records.
 
-Check for PVC binding issues or resource constraints.
+</details>
 
-### Data Not Persisting
+<details>
+<summary>Hint 2: Volume mount name must match</summary>
 
-Verify the volume mount path matches your application's data directory:
-```bash
-kubectl exec -n task-02 key-value-svc-0 -- ls -la /data
-```
+The `volumeMounts[].name` in your container spec must match the `volumeClaimTemplates[].metadata.name`. This is how the volume gets connected to the container.
 
-### Service Not Resolving
+</details>
 
-Test DNS resolution:
-```bash
-kubectl run -it --rm test --image=busybox --restart=Never -n task-02 -- \
-  nslookup key-value-headless.task-02.svc.cluster.local
-```
+<details>
+<summary>Hint 3: Testing data persistence</summary>
 
-## Additional Resources
+To properly test persistence:
+1. Write data to a pod
+2. Delete that specific pod (use pod-0 for simplicity)
+3. Wait for StatefulSet to recreate it
+4. Read the data back - it should still be there
+
+The PVC stays bound to the same pod name when it recreates.
+
+</details>
+
+## 📚 Further Reading
 
 - [Kubernetes StatefulSets Documentation](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/)
 - [Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/)
 - [Headless Services](https://kubernetes.io/docs/concepts/services-networking/service/#headless-services)
-- Kubernetes Patterns Book - Chapter 12: Stateful Service
 
-## Questions?
-
-If you encounter issues:
-1. Check pod logs: `kubectl logs key-value-svc-0 -n task-02`
-2. Describe resources: `kubectl describe statefulset key-value-svc -n task-02`
-3. Verify PVC status: `kubectl get pvc -n task-02`
-
-Good luck! 🚀
+Good luck! 🎓

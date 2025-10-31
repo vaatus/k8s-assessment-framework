@@ -21,8 +21,7 @@ EVAL_FUNCTION_URL=$(cat EVALUATION_ENDPOINT.txt)
 SUBMIT_FUNCTION_URL=$(cat SUBMISSION_ENDPOINT.txt)
 API_KEY=$(cat API_KEY.txt)
 
-echo "This will re-upload the CloudFormation template with correct endpoints."
-echo "This fixes the 'TaskSelection constraint' error."
+echo "This will re-upload the CloudFormation template with current endpoints."
 echo ""
 echo "Evaluation Endpoint: ${EVAL_FUNCTION_URL:0:50}..."
 echo "Submission Endpoint: ${SUBMIT_FUNCTION_URL:0:50}..."
@@ -91,7 +90,4 @@ echo "  https://${TEMPLATES_BUCKET}.s3.${REGION}.amazonaws.com/${TEMPLATE_FILE}"
 echo ""
 echo "Landing Page:"
 echo "  https://${TEMPLATES_BUCKET}.s3.${REGION}.amazonaws.com/index.html"
-echo ""
-echo "The 'TaskSelection constraint' error should now be fixed!"
-echo "Try deploying again from the landing page."
 echo ""
