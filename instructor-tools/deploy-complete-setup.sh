@@ -156,7 +156,7 @@ if [ -f "requirements.txt" ]; then
     mkdir -p /tmp/lambda-package
     pip install -r requirements.txt -t /tmp/lambda-package --quiet --no-cache-dir 2>&1 | grep -v "already satisfied" || true
 
-    # Always use dynamic evaluator
+    # Always use dynamic evaluator - MUST rename to evaluator.py for Lambda handler
     cp evaluator_dynamic.py /tmp/lambda-package/evaluator.py
 
     cd /tmp/lambda-package
