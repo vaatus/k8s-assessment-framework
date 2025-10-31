@@ -489,6 +489,9 @@ class TaskEvaluator:
             # Get pod logs (contains test results)
             logs = self.get_pod_logs(pod_name)
             print(f"Test-runner logs length: {len(logs)} bytes")
+            print("=== FULL TEST-RUNNER OUTPUT ===")
+            print(logs)
+            print("=== END TEST-RUNNER OUTPUT ===")
 
             # Parse results from logs
             test_results = self.parse_test_results(logs)
