@@ -484,20 +484,25 @@ class TaskEvaluator:
 
             # Wait for pod to complete
             print("Waiting for test-runner to complete...")
-            time.sleep(5)  # Give pod time to start
+            self.wait_for_pod_completion(pod_name, timeout=60)
 
             # Get pod logs (contains test results)
             logs = self.get_pod_logs(pod_name)
+            print(f"Test-runner logs length: {len(logs)} bytes")
 
             # Parse results from logs
             test_results = self.parse_test_results(logs)
+            print(f"Parsed {len(test_results)} test results")
 
             # Merge results
             for check_id, result in test_results.items():
                 self.results[check_id] = result.get('passed', False)
+                print(f"  {check_id}: {result.get('passed', False)}")
 
         except Exception as e:
             print(f"Error running application checks: {e}")
+            import traceback
+            traceback.print_exc()
             # Mark all app checks as failed
             for check in app_checks:
                 self.results[check['check_id']] = False
@@ -606,6 +611,30 @@ class TaskEvaluator:
         )
         return resp.status_code in [200, 202]
 
+    def wait_for_pod_completion(self, pod_name, timeout=60):
+        """Wait for pod to complete (Succeeded or Failed status)"""
+        for i in range(timeout):
+            time.sleep(1)
+            try:
+                resp = self.session.get(
+                    f'{self.endpoint}/api/v1/namespaces/{self.namespace}/pods/{pod_name}',
+                    timeout=10
+                )
+                if resp.status_code == 200:
+                    pod = resp.json()
+                    phase = pod.get('status', {}).get('phase')
+                    if phase == 'Succeeded':
+                        print(f"Pod {pod_name} completed successfully")
+                        return True
+                    elif phase == 'Failed':
+                        print(f"Pod {pod_name} failed")
+                        return False
+            except Exception as e:
+                print(f"Error checking pod status: {e}")
+
+        print(f"Pod {pod_name} did not complete within {timeout}s")
+        return False
+
     def create_test_runner_pod(self, pod_name, test_spec):
         """Create test-runner pod in student cluster"""
         pod_manifest = {
@@ -678,12 +707,22 @@ class TaskEvaluator:
         try:
             # Look for JSON in logs
             for line in logs.split('\n'):
-                if line.strip().startswith('{'):
-                    data = json.loads(line)
-                    if 'results' in data:
-                        return data['results']
+                line = line.strip()
+                if line.startswith('{'):
+                    try:
+                        data = json.loads(line)
+                        if 'results' in data:
+                            print(f"Found results in JSON: {list(data['results'].keys())}")
+                            return data['results']
+                    except json.JSONDecodeError as e:
+                        print(f"Failed to parse JSON line: {e}")
+                        continue
+
+            print("No valid JSON with 'results' key found in logs")
+            print(f"Log sample: {logs[:500]}")
             return {}
-        except:
+        except Exception as e:
+            print(f"Error parsing test results: {e}")
             return {}
 
     def calculate_score(self, results):
