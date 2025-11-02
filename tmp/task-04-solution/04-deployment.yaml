@@ -1,0 +1,48 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: config-demo-app
+  namespace: task-04
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: config-demo
+  template:
+    metadata:
+      labels:
+        app: config-demo
+    spec:
+      containers:
+      - name: demo-app
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+        env:
+        # Environment variable from ConfigMap
+        - name: APP_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: app.name
+        # Another env var from ConfigMap
+        - name: APP_ENVIRONMENT
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: app.environment
+        # Environment variable from Secret
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: db-password
+        # Resource limits and requests
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"

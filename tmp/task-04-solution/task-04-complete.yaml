@@ -1,0 +1,94 @@
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: task-04
+
+---
+# ConfigMap with application configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: task-04
+data:
+  app.name: "config-demo-application"
+  app.environment: "production"
+
+---
+# Secret with sensitive data
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secrets
+  namespace: task-04
+type: Opaque
+stringData:
+  db-password: "super-secret-password-123"
+
+---
+# Deployment with resource limits and environment variables
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: config-demo-app
+  namespace: task-04
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: config-demo
+  template:
+    metadata:
+      labels:
+        app: config-demo
+    spec:
+      containers:
+      - name: demo-app
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+        env:
+        # Environment variable from ConfigMap
+        - name: APP_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: app.name
+        # Another env var from ConfigMap
+        - name: APP_ENVIRONMENT
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: app.environment
+        # Environment variable from Secret
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: db-password
+        # Resource limits and requests
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+
+---
+# Service to expose the deployment
+apiVersion: v1
+kind: Service
+metadata:
+  name: config-demo-service
+  namespace: task-04
+spec:
+  type: ClusterIP
+  selector:
+    app: config-demo
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP

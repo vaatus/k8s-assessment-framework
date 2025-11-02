@@ -203,6 +203,8 @@ class TaskEvaluator:
         self.check_deployments()
         self.check_statefulsets()
         self.check_services()
+        self.check_configmaps()
+        self.check_secrets()
         self.check_pvcs()
         self.check_pods()
         self.check_probes()
@@ -342,6 +344,80 @@ class TaskEvaluator:
 
             except Exception as e:
                 print(f"Error checking service {name}: {e}")
+                self.results[f'{prefix}_exists'] = False
+
+    def check_configmaps(self):
+        """Validate configmaps"""
+        configmaps = self.task_spec.get('required_resources', {}).get('configmaps', [])
+
+        for spec in configmaps:
+            name = spec['name']
+            required_keys = spec.get('required_keys', [])
+            prefix = f"configmap"
+
+            try:
+                resp = self.session.get(
+                    f'{self.endpoint}/api/v1/namespaces/{self.namespace}/configmaps/{name}',
+                    timeout=30
+                )
+
+                if resp.status_code == 200:
+                    cm = resp.json()
+                    data = cm.get('data', {})
+
+                    # Check if all required keys exist
+                    all_keys_present = all(key in data for key in required_keys)
+
+                    self.results[f'{prefix}_exists'] = all_keys_present
+
+                    if all_keys_present:
+                        print(f"ConfigMap {name} found with all required keys: {required_keys}")
+                    else:
+                        missing_keys = [key for key in required_keys if key not in data]
+                        print(f"ConfigMap {name} missing keys: {missing_keys}")
+                else:
+                    print(f"ConfigMap {name} not found (status: {resp.status_code})")
+                    self.results[f'{prefix}_exists'] = False
+
+            except Exception as e:
+                print(f"Error checking configmap {name}: {e}")
+                self.results[f'{prefix}_exists'] = False
+
+    def check_secrets(self):
+        """Validate secrets"""
+        secrets = self.task_spec.get('required_resources', {}).get('secrets', [])
+
+        for spec in secrets:
+            name = spec['name']
+            required_keys = spec.get('required_keys', [])
+            prefix = f"secret"
+
+            try:
+                resp = self.session.get(
+                    f'{self.endpoint}/api/v1/namespaces/{self.namespace}/secrets/{name}',
+                    timeout=30
+                )
+
+                if resp.status_code == 200:
+                    secret = resp.json()
+                    data = secret.get('data', {})
+
+                    # Check if all required keys exist
+                    all_keys_present = all(key in data for key in required_keys)
+
+                    self.results[f'{prefix}_exists'] = all_keys_present
+
+                    if all_keys_present:
+                        print(f"Secret {name} found with all required keys: {required_keys}")
+                    else:
+                        missing_keys = [key for key in required_keys if key not in data]
+                        print(f"Secret {name} missing keys: {missing_keys}")
+                else:
+                    print(f"Secret {name} not found (status: {resp.status_code})")
+                    self.results[f'{prefix}_exists'] = False
+
+            except Exception as e:
+                print(f"Error checking secret {name}: {e}")
                 self.results[f'{prefix}_exists'] = False
 
     def check_pvcs(self):
