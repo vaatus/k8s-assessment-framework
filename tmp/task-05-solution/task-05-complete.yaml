@@ -1,0 +1,96 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: task-05
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: counter-service
+  namespace: task-05
+spec:
+  clusterIP: None  # Headless service for StatefulSet
+  selector:
+    app: counter
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: counter-app
+  namespace: task-05
+spec:
+  serviceName: counter-service
+  replicas: 2
+  selector:
+    matchLabels:
+      app: counter
+  template:
+    metadata:
+      labels:
+        app: counter
+    spec:
+      # Init container to initialize counter file
+      initContainers:
+      - name: init-counter
+        image: busybox:latest
+        command:
+        - sh
+        - -c
+        - |
+          if [ ! -f /data/counter.txt ]; then
+            echo "Initializing counter to 0"
+            echo "0" > /data/counter.txt
+          else
+            echo "Counter file already exists with value: $(cat /data/counter.txt)"
+          fi
+          # Set ownership to UID 1000 (appuser in the main container)
+          chown 1000:1000 /data/counter.txt
+          chmod 644 /data/counter.txt
+          echo "Permissions set:"
+          ls -la /data/
+        volumeMounts:
+        - name: counter-data
+          mountPath: /data
+
+      # Main application container
+      containers:
+      - name: counter
+        image: counter-app:latest
+        imagePullPolicy: Never  # For K3s local images
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        # Inject pod name for identification
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        volumeMounts:
+        - name: counter-data
+          mountPath: /data
+        # Readiness probe - checks if counter file exists
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 3
+          failureThreshold: 3
+
+  # Persistent Volume Claim templates for each pod
+  volumeClaimTemplates:
+  - metadata:
+      name: counter-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 100Mi

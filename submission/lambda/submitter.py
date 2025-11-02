@@ -2,9 +2,13 @@ import json
 import boto3
 import os
 from datetime import datetime
+import jwt
 
 s3 = boto3.client('s3')
 BUCKET_NAME = 'k8s-eval-results'
+
+# JWT Secret for validating evaluation tokens (must match evaluator secret)
+JWT_SECRET = os.environ.get('JWT_SECRET', os.environ.get('API_KEY', 'default-secret-change-me'))
 
 def lambda_handler(event, context):
     """
@@ -42,7 +46,7 @@ def lambda_handler(event, context):
         student_id = body.get('student_id')
         task_id = body.get('task_id')
         eval_token = body.get('eval_token')
-        
+
         # Validate inputs
         if not all([student_id, task_id, eval_token]):
             return {
@@ -51,18 +55,45 @@ def lambda_handler(event, context):
                     'error': 'Missing required parameters: student_id, task_id, eval_token'
                 })
             }
-        
-        # Verify evaluation exists
-        eval_key = f'evaluations/{student_id}/{task_id}/{eval_token}.json'
-        
+
+        # Decode and validate JWT token
         try:
-            response = s3.get_object(Bucket=BUCKET_NAME, Key=eval_key)
-            eval_data = json.loads(response['Body'].read())
-        except s3.exceptions.NoSuchKey:
+            eval_data = jwt.decode(eval_token, JWT_SECRET, algorithms=['HS256'])
+            print(f"JWT token decoded successfully for {eval_data.get('student_id')}")
+        except jwt.ExpiredSignatureError:
             return {
-                'statusCode': 404,
+                'statusCode': 401,
                 'body': json.dumps({
-                    'error': 'Evaluation token not found. Please run evaluation first.'
+                    'error': 'Evaluation token has expired. Please run evaluation again.'
+                })
+            }
+        except jwt.InvalidTokenError as e:
+            return {
+                'statusCode': 401,
+                'body': json.dumps({
+                    'error': 'Invalid evaluation token. Token may be corrupted or forged.',
+                    'details': str(e)
+                })
+            }
+
+        # Verify student_id and task_id match the JWT payload (prevent token reuse)
+        if eval_data.get('student_id') != student_id:
+            return {
+                'statusCode': 403,
+                'body': json.dumps({
+                    'error': 'Student ID mismatch. This token belongs to a different student.',
+                    'expected': eval_data.get('student_id'),
+                    'provided': student_id
+                })
+            }
+
+        if eval_data.get('task_id') != task_id:
+            return {
+                'statusCode': 403,
+                'body': json.dumps({
+                    'error': 'Task ID mismatch. This token is for a different task.',
+                    'expected': eval_data.get('task_id'),
+                    'provided': task_id
                 })
             }
         
@@ -70,6 +101,7 @@ def lambda_handler(event, context):
         submission_timestamp = datetime.utcnow().isoformat()
         submission = {
             **eval_data,
+            'eval_token': eval_token,  # Store JWT for audit trail
             'submission_timestamp': submission_timestamp,
             'submitted': True
         }

@@ -15,10 +15,14 @@ from urllib3.exceptions import InsecureRequestWarning
 import yaml
 import time
 import base64
+import jwt
 
 s3 = boto3.client('s3')
 BUCKET_NAME = 'k8s-eval-results'
 TEST_RUNNER_IMAGE = os.environ.get('TEST_RUNNER_IMAGE', 'public.ecr.aws/your-registry/test-runner:latest')
+
+# JWT Secret for signing evaluation tokens (fallback to API_KEY for backward compatibility)
+JWT_SECRET = os.environ.get('JWT_SECRET', os.environ.get('API_KEY', 'default-secret-change-me'))
 
 urllib3.disable_warnings(InsecureRequestWarning)
 
@@ -69,35 +73,52 @@ def lambda_handler(event, context):
         evaluation_results = evaluator.evaluate()
         score = evaluator.calculate_score(evaluation_results)
 
-        # Generate report
-        eval_token = str(uuid.uuid4())
-        report = {
-            'eval_token': eval_token,
+        # Generate JWT token containing all evaluation data
+        timestamp = datetime.utcnow().isoformat()
+        max_score = task_spec.get('scoring', {}).get('max_score', 100)
+
+        jwt_payload = {
             'student_id': student_id,
             'task_id': task_id,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': timestamp,
             'score': score,
-            'max_score': task_spec.get('scoring', {}).get('max_score', 100),
+            'max_score': max_score,
             'results': evaluation_results,
             'status': 'completed'
         }
 
-        # Store in S3
+        # Sign the JWT token
+        eval_token = jwt.encode(jwt_payload, JWT_SECRET, algorithm='HS256')
+
+        # Create report for S3 storage (includes token for audit trail)
+        report = {
+            'eval_token': eval_token,
+            'student_id': student_id,
+            'task_id': task_id,
+            'timestamp': timestamp,
+            'score': score,
+            'max_score': max_score,
+            'results': evaluation_results,
+            'status': 'completed'
+        }
+
+        # Store in S3 using timestamp-based key (JWT too long for filename)
         s3.put_object(
             Bucket=BUCKET_NAME,
-            Key=f'evaluations/{student_id}/{task_id}/{eval_token}.json',
+            Key=f'evaluations/{student_id}/{task_id}/{timestamp}.json',
             Body=json.dumps(report, indent=2),
             ContentType='application/json'
         )
 
-        print(f"Evaluation complete: {score}/{report['max_score']}")
+        print(f"Evaluation complete: {score}/{max_score}")
+        print(f"JWT token generated (length: {len(eval_token)} chars)")
 
         return {
             'statusCode': 200,
             'body': json.dumps({
                 'eval_token': eval_token,
                 'score': score,
-                'max_score': report['max_score'],
+                'max_score': max_score,
                 'message': 'Evaluation completed.',
                 'results_summary': generate_summary(evaluation_results, task_spec)
             })
