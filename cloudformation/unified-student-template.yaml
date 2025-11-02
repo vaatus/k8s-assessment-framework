@@ -59,6 +59,7 @@ Parameters:
       - task-02
       - task-03
       - task-04
+      - task-05
     Description: Select the task assigned to you by your instructor
     ConstraintDescription: Choose your assigned task
 
@@ -108,6 +109,14 @@ Mappings:
       Name: "ConfigMaps and Secrets"
       Description: "Manage application configuration using ConfigMaps and Secrets"
       GitHubPath: "tasks/task-03"
+    task-04:
+      Name: "ConfigMaps, Secrets, and Resource Management"
+      Description: "Configure resources with ConfigMaps, Secrets, and resource limits"
+      GitHubPath: "tasks/task-04"
+    task-05:
+      Name: "StatefulSet with Persistent Storage"
+      Description: "Deploy stateful applications using StatefulSets and persistent volumes"
+      GitHubPath: "tasks/task-05"
 
 Resources:
   # VPC Configuration

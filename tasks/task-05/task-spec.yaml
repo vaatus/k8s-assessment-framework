@@ -1,0 +1,143 @@
+task_id: "task-05"
+task_name: "StatefulSet with Persistent Storage"
+task_type: "statefulset"
+namespace: "task-05"
+
+description: |
+  Create a StatefulSet application that demonstrates:
+  - StatefulSet with stable pod identities
+  - Persistent Volume Claims for data storage
+  - Init containers for initialization
+  - HTTP API for counter increment/retrieval
+  - Readiness probes
+  - Volume mounts for persistent data
+
+required_resources:
+  statefulsets:
+    - name: "counter-app"
+      replicas: 2
+      serviceName: "counter-service"
+      selector_labels:
+        app: "counter"
+      volumeClaimTemplates:
+        - name: "counter-data"
+          storage: "100Mi"
+          accessModes:
+            - "ReadWriteOnce"
+      containers:
+        - name: "counter"
+          image_pattern: "counter-app"
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: "counter-data"
+              mountPath: "/data"
+          readinessProbe:
+            httpGet:
+              path: "/ready"
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 3
+      initContainers:
+        - name: "init-counter"
+          image_pattern: "busybox"
+          volumeMounts:
+            - name: "counter-data"
+              mountPath: "/data"
+
+  services:
+    - name: "counter-service"
+      type: "ClusterIP"
+      clusterIP: "None"  # Headless service for StatefulSet
+      selector_labels:
+        app: "counter"
+      ports:
+        - port: 8080
+          targetPort: 8080
+
+application_checks:
+  - check_id: "counter_increment"
+    check_type: "http_post"
+    service: "counter-service"
+    port: 8080
+    path: "/increment"
+    namespace: "task-05"
+    target_pod: "counter-app-0"
+    expected_status: 200
+    timeout: 10
+
+  - check_id: "counter_get_value"
+    check_type: "http_get"
+    service: "counter-service"
+    port: 8080
+    path: "/count"
+    namespace: "task-05"
+    target_pod: "counter-app-0"
+    expected_status: 200
+    expected_json_fields:
+      - "count"
+      - "pod_name"
+    timeout: 10
+
+  - check_id: "counter_ready"
+    check_type: "http_get"
+    service: "counter-service"
+    port: 8080
+    path: "/ready"
+    namespace: "task-05"
+    target_pod: "counter-app-0"
+    expected_status: 200
+    timeout: 10
+
+  - check_id: "counter_pod1_ready"
+    check_type: "http_get"
+    service: "counter-service"
+    port: 8080
+    path: "/ready"
+    namespace: "task-05"
+    target_pod: "counter-app-1"
+    expected_status: 200
+    timeout: 10
+
+scoring:
+  max_score: 100
+  criteria:
+    # StatefulSet checks (40 points)
+    - id: "statefulset_counter-app_exists"
+      description: "StatefulSet 'counter-app' exists"
+      points: 15
+      required: true
+
+    - id: "statefulset_counter-app_replicas_correct"
+      description: "StatefulSet has 2 replicas"
+      points: 10
+
+    - id: "statefulset_counter-app_pods_running"
+      description: "All StatefulSet pods are running"
+      points: 10
+
+    - id: "statefulset_counter-app_has_volume_claims"
+      description: "Volume claim templates configured"
+      points: 5
+
+    # Service checks (10 points)
+    - id: "service_counter-service_exists"
+      description: "Headless service 'counter-service' exists"
+      points: 10
+
+    # Application HTTP checks (40 points)
+    - id: "counter_increment"
+      description: "Counter increment endpoint works"
+      points: 10
+
+    - id: "counter_get_value"
+      description: "Counter get value endpoint returns JSON"
+      points: 10
+
+    - id: "counter_ready"
+      description: "Counter pod-0 readiness check passes"
+      points: 10
+
+    - id: "counter_pod1_ready"
+      description: "Counter pod-1 readiness check passes"
+      points: 20
