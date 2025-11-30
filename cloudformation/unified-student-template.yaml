@@ -686,21 +686,21 @@ Resources:
             ## Requirements
 
             1. **Deployment**:
-               - Name: \`nginx-web\`
-               - Namespace: \`${TaskSelection}\`
+               - Name: `nginx-web`
+               - Namespace: `${TaskSelection}`
                - Replicas: 2
-               - Container image: \`nginx:latest\`
+               - Container image: `nginx:latest`
                - Container port: 80
 
             2. **Service**:
-               - Name: \`nginx-service\`
+               - Name: `nginx-service`
                - Type: NodePort
                - Port: 80
                - NodePort: 30080
-               - Selector: \`app: nginx\`
+               - Selector: `app: nginx`
 
             3. **Labels**:
-               - All resources must have label: \`app: nginx\`
+               - All resources must have label: `app: nginx`
 
             ## Validation Criteria
 
@@ -714,17 +714,17 @@ Resources:
             ## How to Complete
 
             1. Create your solution YAML file(s) in this directory
-            2. Apply your solution: \`kubectl apply -f your-solution.yaml\`
-            3. Verify it works: \`kubectl get all\`
-            4. Request evaluation: \`kubeafr eval ${TaskSelection}\`
+            2. Apply your solution: `kubectl apply -f your-solution.yaml`
+            3. Verify it works: `kubectl get all`
+            4. Request evaluation: `kubeafr eval ${TaskSelection}`
             5. Review results and fix any issues
-            6. Submit when ready: \`kubeafr submit ${TaskSelection}\`
+            6. Submit when ready: `kubeafr submit ${TaskSelection}`
 
-            **Tip:** You can also use shortcuts: \`eval ${TaskSelection}\` or \`submit ${TaskSelection}\`
+            **Tip:** You can also use shortcuts: `eval ${TaskSelection}` or `submit ${TaskSelection}`
 
             ## Example Solution Structure
 
-            \`\`\`yaml
+            ```yaml
             apiVersion: apps/v1
             kind: Deployment
             metadata:
@@ -759,7 +759,7 @@ Resources:
               - port: 80
                 targetPort: 80
                 nodePort: 30080
-            \`\`\`
+            ```
 
             Good luck!
             EOFTASKREADME
@@ -781,19 +781,17 @@ Resources:
               echo "✅ kubeafr CLI installed to /usr/local/bin/kubeafr"
 
               # Set up environment variables for student commands
-              cat >> /home/ubuntu/.bashrc <<'EOFBASHRC'
-
-# Kubernetes Assessment Framework environment
-export EVAL_ENDPOINT="${EvaluationEndpoint}"
-export SUBMIT_ENDPOINT="${SubmissionEndpoint}"
-export API_KEY="${ApiKey}"
-
-# kubeafr CLI
-alias eval="kubeafr eval"
-alias submit="kubeafr submit"
-alias k8s-status="kubeafr status"
-alias k8s-tasks="kubeafr tasks"
-EOFBASHRC
+              cat >> /home/ubuntu/.bashrc << 'EOFBASHRC'
+            # Kubernetes Assessment Framework environment
+            export EVAL_ENDPOINT="${EvaluationEndpoint}"
+            export SUBMIT_ENDPOINT="${SubmissionEndpoint}"
+            export API_KEY="${ApiKey}"
+            # kubeafr CLI
+            alias eval="kubeafr eval"
+            alias submit="kubeafr submit"
+            alias k8s-status="kubeafr status"
+            alias k8s-tasks="kubeafr tasks"
+            EOFBASHRC
 
               # Replace placeholders in .bashrc
               sed -i "s|\${EvaluationEndpoint}|${EvaluationEndpoint}|g" /home/ubuntu/.bashrc
