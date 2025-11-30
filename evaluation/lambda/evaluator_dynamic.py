@@ -119,8 +119,9 @@ def lambda_handler(event, context):
                 'eval_token': eval_token,
                 'score': score,
                 'max_score': max_score,
+                'status': 'completed',
                 'message': 'Evaluation completed.',
-                'results_summary': generate_summary(evaluation_results, task_spec)
+                'results': generate_summary(evaluation_results, task_spec)
             })
         }
 
