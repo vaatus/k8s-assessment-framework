@@ -1,0 +1,573 @@
+#!/usr/bin/env python3
+"""
+k8s-assess - Kubernetes Assessment Framework CLI
+
+A unified command-line interface for managing Kubernetes assessment infrastructure.
+Combines all instructor tools, student tools, and utilities into a single CLI.
+
+Usage:
+    k8s-assess <command> [options]
+
+Commands:
+    Instructor Commands:
+        deploy              Deploy complete assessment infrastructure
+        upload-specs        Upload task specifications to S3
+        view-results        View student evaluation results
+        decode-token        Decode JWT evaluation tokens
+        reupload-template   Re-upload CloudFormation template to S3
+
+    Utility Commands:
+        validate-spec       Validate task specification file
+        list-tasks          List all available tasks
+        check-prereqs       Check deployment prerequisites
+
+    Help:
+        help                Show this help message
+        version             Show version information
+        man                 Show detailed manual page
+
+Examples:
+    k8s-assess deploy                  # Deploy infrastructure
+    k8s-assess upload-specs            # Upload all task specs
+    k8s-assess view-results TEST01     # View results for student TEST01
+    k8s-assess decode-token <token>    # Decode JWT token
+    k8s-assess validate-spec task-07   # Validate task-07 spec
+
+For detailed help on a command:
+    k8s-assess <command> --help
+"""
+
+import sys
+import os
+import subprocess
+import json
+import yaml
+import argparse
+from pathlib import Path
+from typing import Optional, List
+import textwrap
+
+VERSION = "3.0.0"
+FRAMEWORK_ROOT = Path(__file__).parent.parent.absolute()
+
+
+class Colors:
+    """ANSI color codes for terminal output"""
+    RESET = '\033[0m'
+    BOLD = '\033[1m'
+    RED = '\033[91m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+
+    @staticmethod
+    def success(text: str) -> str:
+        return f"{Colors.GREEN}✓{Colors.RESET} {text}"
+
+    @staticmethod
+    def error(text: str) -> str:
+        return f"{Colors.RED}✗{Colors.RESET} {text}"
+
+    @staticmethod
+    def warning(text: str) -> str:
+        return f"{Colors.YELLOW}⚠{Colors.RESET} {text}"
+
+    @staticmethod
+    def info(text: str) -> str:
+        return f"{Colors.BLUE}ℹ{Colors.RESET} {text}"
+
+
+def print_header(text: str):
+    """Print a formatted header"""
+    print(f"\n{Colors.BOLD}{Colors.CYAN}{text}{Colors.RESET}")
+    print("=" * len(text))
+
+
+def run_script(script_name: str, args: List[str] = None) -> int:
+    """Run a bash script from instructor-tools"""
+    script_path = FRAMEWORK_ROOT / "instructor-tools" / script_name
+
+    if not script_path.exists():
+        print(Colors.error(f"Script not found: {script_path}"))
+        return 1
+
+    cmd = [str(script_path)]
+    if args:
+        cmd.extend(args)
+
+    try:
+        result = subprocess.run(cmd, cwd=str(script_path.parent))
+        return result.returncode
+    except Exception as e:
+        print(Colors.error(f"Failed to run script: {e}"))
+        return 1
+
+
+def cmd_deploy(args):
+    """Deploy complete assessment infrastructure"""
+    print_header("Deploying Assessment Infrastructure")
+    print(Colors.info("Running deployment script..."))
+    return run_script("deploy-complete-setup.sh")
+
+
+def cmd_upload_specs(args):
+    """Upload task specifications to S3"""
+    print_header("Uploading Task Specifications")
+
+    tasks_dir = FRAMEWORK_ROOT / "tasks"
+    if not tasks_dir.exists():
+        print(Colors.error("Tasks directory not found"))
+        return 1
+
+    # Count task specs
+    task_specs = list(tasks_dir.glob("task-*/task-spec.yaml"))
+    print(Colors.info(f"Found {len(task_specs)} task specifications"))
+
+    for spec in task_specs:
+        task_id = spec.parent.name
+        print(f"  • {task_id}")
+
+    return run_script("upload-task-specs.sh")
+
+
+def cmd_view_results(args):
+    """View student evaluation results"""
+    print_header("Student Evaluation Results")
+
+    if args.student_id:
+        print(Colors.info(f"Viewing results for student: {args.student_id}"))
+
+    # Run view-results.sh
+    script_args = [args.student_id] if args.student_id else []
+    return run_script("view-results.sh", script_args)
+
+
+def cmd_decode_token(args):
+    """Decode JWT evaluation token"""
+    print_header("JWT Token Decoder")
+
+    if not args.token:
+        print(Colors.error("Token required"))
+        print("Usage: k8s-assess decode-token <token>")
+        return 1
+
+    token = args.token
+
+    # Check if token is a file
+    if os.path.isfile(token):
+        print(Colors.info(f"Reading token from file: {token}"))
+        with open(token, 'r') as f:
+            content = f.read().strip()
+            try:
+                data = json.loads(content)
+                token = data.get('eval_token', content)
+            except:
+                token = content
+
+    # Import jwt for decoding
+    try:
+        import jwt
+    except ImportError:
+        print(Colors.error("PyJWT not installed"))
+        print("Install with: pip3 install PyJWT")
+        return 1
+
+    # Get secret from environment or API_KEY.txt
+    api_key_file = FRAMEWORK_ROOT / "instructor-tools" / "API_KEY.txt"
+    secret = os.environ.get('JWT_SECRET') or os.environ.get('API_KEY')
+
+    if not secret and api_key_file.exists():
+        secret = api_key_file.read_text().strip()
+
+    if not secret:
+        print(Colors.warning("JWT_SECRET not found, decoding without verification"))
+        try:
+            payload = jwt.decode(token, options={"verify_signature": False})
+            verify = False
+        except Exception as e:
+            print(Colors.error(f"Failed to decode token: {e}"))
+            return 1
+    else:
+        try:
+            payload = jwt.decode(token, secret, algorithms=['HS256'])
+            verify = True
+        except jwt.InvalidTokenError:
+            print(Colors.warning("Signature verification failed, decoding anyway..."))
+            payload = jwt.decode(token, options={"verify_signature": False})
+            verify = False
+
+    # Display token info
+    if verify:
+        print(Colors.success("Token signature verified"))
+    else:
+        print(Colors.warning("Token decoded WITHOUT verification"))
+
+    print(f"\n{Colors.BOLD}Student ID:{Colors.RESET}    {payload.get('student_id')}")
+    print(f"{Colors.BOLD}Task ID:{Colors.RESET}       {payload.get('task_id')}")
+    print(f"{Colors.BOLD}Score:{Colors.RESET}         {payload.get('score')}/{payload.get('max_score')}")
+    print(f"{Colors.BOLD}Timestamp:{Colors.RESET}     {payload.get('timestamp')}")
+    print(f"{Colors.BOLD}Status:{Colors.RESET}        {payload.get('status')}")
+
+    # Display results
+    results = payload.get('results', {})
+    if results:
+        print(f"\n{Colors.BOLD}Evaluation Results:{Colors.RESET}")
+        passed = sum(1 for v in results.values() if v is True)
+        total = len(results)
+
+        for criterion, result in sorted(results.items()):
+            status = f"{Colors.GREEN}✓ PASS{Colors.RESET}" if result else f"{Colors.RED}✗ FAIL{Colors.RESET}"
+            print(f"  {criterion:<50} {status}")
+
+        print(f"\n{Colors.BOLD}Total:{Colors.RESET} {passed}/{total} checks passed")
+
+    if args.json:
+        print(f"\n{Colors.BOLD}Full JSON:{Colors.RESET}")
+        print(json.dumps(payload, indent=2))
+
+    return 0
+
+
+def cmd_reupload_template(args):
+    """Re-upload CloudFormation template to S3"""
+    print_header("Re-uploading CloudFormation Template")
+    return run_script("reupload-template.sh")
+
+
+def cmd_validate_spec(args):
+    """Validate task specification file"""
+    print_header("Task Specification Validator")
+
+    if not args.task_id:
+        print(Colors.error("Task ID required"))
+        print("Usage: k8s-assess validate-spec <task-id>")
+        return 1
+
+    task_id = args.task_id
+    spec_path = FRAMEWORK_ROOT / "tasks" / task_id / "task-spec.yaml"
+
+    if not spec_path.exists():
+        print(Colors.error(f"Task spec not found: {spec_path}"))
+        return 1
+
+    print(Colors.info(f"Validating: {spec_path}"))
+
+    # Load and validate YAML
+    try:
+        with open(spec_path, 'r') as f:
+            spec = yaml.safe_load(f)
+    except Exception as e:
+        print(Colors.error(f"YAML parsing failed: {e}"))
+        return 1
+
+    # Validate required fields
+    required_fields = ['task_id', 'task_name', 'namespace', 'required_resources', 'scoring']
+    errors = []
+    warnings = []
+
+    for field in required_fields:
+        if field not in spec:
+            errors.append(f"Missing required field: {field}")
+
+    # Validate task_id matches directory
+    if spec.get('task_id') != task_id:
+        errors.append(f"task_id '{spec.get('task_id')}' doesn't match directory '{task_id}'")
+
+    # Validate namespace
+    if spec.get('namespace') != task_id:
+        warnings.append(f"namespace '{spec.get('namespace')}' doesn't match task_id '{task_id}'")
+
+    # Validate scoring
+    if 'scoring' in spec:
+        scoring = spec['scoring']
+        if 'max_score' not in scoring:
+            warnings.append("scoring.max_score not specified (defaults to 100)")
+
+        if 'criteria' not in scoring:
+            errors.append("scoring.criteria is required")
+        else:
+            total_points = sum(c.get('points', 0) for c in scoring['criteria'])
+            max_score = scoring.get('max_score', 100)
+            if total_points != max_score:
+                warnings.append(f"Criteria points ({total_points}) don't sum to max_score ({max_score})")
+
+    # Print results
+    if errors:
+        print(f"\n{Colors.RED}{Colors.BOLD}Errors:{Colors.RESET}")
+        for error in errors:
+            print(f"  {Colors.error(error)}")
+
+    if warnings:
+        print(f"\n{Colors.YELLOW}{Colors.BOLD}Warnings:{Colors.RESET}")
+        for warning in warnings:
+            print(f"  {Colors.warning(warning)}")
+
+    if not errors and not warnings:
+        print(Colors.success("Validation passed!"))
+        return 0
+    elif not errors:
+        print(f"\n{Colors.success('Validation passed with warnings')}")
+        return 0
+    else:
+        print(f"\n{Colors.error('Validation failed')}")
+        return 1
+
+
+def cmd_list_tasks(args):
+    """List all available tasks"""
+    print_header("Available Tasks")
+
+    tasks_dir = FRAMEWORK_ROOT / "tasks"
+    if not tasks_dir.exists():
+        print(Colors.error("Tasks directory not found"))
+        return 1
+
+    tasks = sorted([d for d in tasks_dir.iterdir() if d.is_dir() and d.name.startswith('task-')])
+
+    if not tasks:
+        print(Colors.warning("No tasks found"))
+        return 0
+
+    print(f"\n{Colors.BOLD}{'Task ID':<15} {'Task Name':<40} {'Type':<15} {'Spec'}{Colors.RESET}")
+    print("-" * 80)
+
+    for task_dir in tasks:
+        task_id = task_dir.name
+        spec_path = task_dir / "task-spec.yaml"
+
+        if spec_path.exists():
+            try:
+                with open(spec_path, 'r') as f:
+                    spec = yaml.safe_load(f)
+                task_name = spec.get('task_name', 'N/A')
+                task_type = spec.get('task_type', 'N/A')
+                has_spec = f"{Colors.GREEN}✓{Colors.RESET}"
+            except:
+                task_name = "Error reading spec"
+                task_type = "N/A"
+                has_spec = f"{Colors.RED}✗{Colors.RESET}"
+        else:
+            task_name = "No spec file"
+            task_type = "N/A"
+            has_spec = f"{Colors.RED}✗{Colors.RESET}"
+
+        print(f"{task_id:<15} {task_name:<40} {task_type:<15} {has_spec}")
+
+    print(f"\n{Colors.info(f'Total: {len(tasks)} tasks')}")
+    return 0
+
+
+def cmd_check_prereqs(args):
+    """Check deployment prerequisites"""
+    print_header("Checking Prerequisites")
+    return run_script("check-prerequisites.sh")
+
+
+def cmd_version(args):
+    """Show version information"""
+    print(f"k8s-assess version {VERSION}")
+    print(f"Kubernetes Assessment Framework")
+    return 0
+
+
+def cmd_help(args):
+    """Show help message"""
+    print(__doc__)
+    return 0
+
+
+def cmd_man(args):
+    """Show detailed manual page"""
+    man_page = """
+K8S-ASSESS(1)                    User Commands                   K8S-ASSESS(1)
+
+NAME
+       k8s-assess - Kubernetes Assessment Framework CLI
+
+SYNOPSIS
+       k8s-assess <command> [options]
+
+DESCRIPTION
+       k8s-assess is a unified command-line interface for managing the
+       Kubernetes Assessment Framework. It combines instructor tools, student
+       tools, and utilities into a single, easy-to-use CLI.
+
+COMMANDS
+       Instructor Commands:
+           deploy
+               Deploy complete assessment infrastructure including S3 buckets,
+               Lambda functions, and CloudFormation templates.
+
+           upload-specs
+               Upload all task specifications (task-spec.yaml files) to S3 for
+               use by the dynamic evaluator.
+
+           view-results [student-id]
+               View evaluation results. Optionally filter by student ID.
+
+           decode-token <token>
+               Decode a JWT evaluation token and display its contents. Token
+               can be provided as a string or file path.
+
+           reupload-template
+               Re-upload CloudFormation template to S3 without redeploying
+               Lambda functions. Useful for quick template updates.
+
+       Utility Commands:
+           validate-spec <task-id>
+               Validate a task specification file for correctness. Checks
+               required fields, scoring criteria, and YAML syntax.
+
+           list-tasks
+               List all available tasks with their specifications.
+
+           check-prereqs
+               Check if all deployment prerequisites are met (AWS CLI, Python,
+               credentials, etc.).
+
+       Help Commands:
+           help
+               Show brief help message.
+
+           version
+               Show version information.
+
+           man
+               Show this manual page.
+
+OPTIONS
+       --json
+           Output results in JSON format (where applicable).
+
+       --verbose, -v
+           Enable verbose output.
+
+       --help, -h
+           Show command-specific help.
+
+EXAMPLES
+       Deploy infrastructure:
+           $ k8s-assess deploy
+
+       Upload task specifications:
+           $ k8s-assess upload-specs
+
+       View results for a specific student:
+           $ k8s-assess view-results TEST01
+
+       Decode an evaluation token:
+           $ k8s-assess decode-token eyJhbGciOi...
+
+       Validate a task specification:
+           $ k8s-assess validate-spec task-07
+
+       List all tasks:
+           $ k8s-assess list-tasks
+
+ENVIRONMENT
+       JWT_SECRET
+           Secret key for JWT token verification. Falls back to API_KEY if not
+           set.
+
+       API_KEY
+           API key for Lambda function authentication and JWT signing.
+
+FILES
+       ~/k8s-assessment-framework/instructor-tools/API_KEY.txt
+           Stores the API key used for authentication.
+
+       ~/k8s-assessment-framework/tasks/*/task-spec.yaml
+           Task specification files.
+
+EXIT STATUS
+       0      Success
+       1      Error
+
+SEE ALSO
+       AWS CloudFormation documentation, Kubernetes documentation
+
+AUTHOR
+       Kubernetes Assessment Framework Team
+
+VERSION
+       3.0.0
+
+K8S-ASSESS                         2025-11-02                    K8S-ASSESS(1)
+"""
+    print(man_page)
+    return 0
+
+
+def main():
+    """Main CLI entry point"""
+    parser = argparse.ArgumentParser(
+        description="Kubernetes Assessment Framework CLI",
+        add_help=False
+    )
+
+    subparsers = parser.add_subparsers(dest='command', help='Command to execute')
+
+    # Instructor commands
+    subparsers.add_parser('deploy', help='Deploy assessment infrastructure')
+    subparsers.add_parser('upload-specs', help='Upload task specifications to S3')
+
+    view_parser = subparsers.add_parser('view-results', help='View student results')
+    view_parser.add_argument('student_id', nargs='?', help='Student ID to filter')
+
+    decode_parser = subparsers.add_parser('decode-token', help='Decode JWT token')
+    decode_parser.add_argument('token', help='JWT token or file path')
+    decode_parser.add_argument('--json', action='store_true', help='Output full JSON')
+
+    subparsers.add_parser('reupload-template', help='Re-upload CloudFormation template')
+
+    # Utility commands
+    validate_parser = subparsers.add_parser('validate-spec', help='Validate task specification')
+    validate_parser.add_argument('task_id', help='Task ID (e.g., task-07)')
+
+    subparsers.add_parser('list-tasks', help='List all available tasks')
+    subparsers.add_parser('check-prereqs', help='Check deployment prerequisites')
+
+    # Help commands
+    subparsers.add_parser('help', help='Show help message')
+    subparsers.add_parser('version', help='Show version')
+    subparsers.add_parser('man', help='Show manual page')
+
+    args = parser.parse_args()
+
+    # Command routing
+    commands = {
+        'deploy': cmd_deploy,
+        'upload-specs': cmd_upload_specs,
+        'view-results': cmd_view_results,
+        'decode-token': cmd_decode_token,
+        'reupload-template': cmd_reupload_template,
+        'validate-spec': cmd_validate_spec,
+        'list-tasks': cmd_list_tasks,
+        'check-prereqs': cmd_check_prereqs,
+        'version': cmd_version,
+        'help': cmd_help,
+        'man': cmd_man,
+    }
+
+    if not args.command:
+        cmd_help(args)
+        return 0
+
+    if args.command in commands:
+        return commands[args.command](args)
+    else:
+        print(Colors.error(f"Unknown command: {args.command}"))
+        print("Run 'k8s-assess help' for usage information")
+        return 1
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        print(f"\n{Colors.warning('Interrupted by user')}")
+        sys.exit(130)
+    except Exception as e:
+        print(Colors.error(f"Unexpected error: {e}"))
+        sys.exit(1)

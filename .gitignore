@@ -6,6 +6,7 @@
 # Lambda deployment packages
 lambda-package.zip
 submission-lambda-package.zip
+lambda-deployment.zip
 lambda-build/
 
 # Environment specific files

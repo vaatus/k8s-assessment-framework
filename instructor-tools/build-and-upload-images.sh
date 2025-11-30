@@ -30,10 +30,13 @@ if ! aws s3 ls "s3://${TEMPLATES_BUCKET}" 2>/dev/null; then
 fi
 
 echo "This script will:"
-echo "  1. Build test-runner Docker image"
-echo "  2. Build task-02 kvstore application image"
+echo "  1. Build task-02 kvstore application image"
+echo "  2. Build task-03 backend/frontend images (if available)"
 echo "  3. Save images as tar files"
 echo "  4. Upload to S3 for CloudFormation to download"
+echo ""
+echo "Note: test-runner image is now built locally on student EC2 instances"
+echo "      to reduce S3 storage and transfer costs."
 echo ""
 read -p "Continue? (yes/no): " CONFIRM
 
@@ -48,29 +51,12 @@ echo "Using temporary directory: ${TEMP_DIR}"
 echo ""
 
 # ============================================================================
-# Build Test-Runner Image
+# Note: Test-Runner Image (SKIPPED - now built locally on student EC2)
 # ============================================================================
-echo "=== Building Test-Runner Image ==="
+echo "=== Test-Runner Image ==="
+echo "⏭️  Skipping test-runner image (now built locally on student EC2)"
+echo "   This reduces S3 storage costs and transfer bandwidth"
 echo ""
-
-cd ../evaluation/test-runner
-
-if [ ! -f "Dockerfile" ]; then
-    echo "Error: test-runner Dockerfile not found"
-    exit 1
-fi
-
-echo "Building test-runner:latest..."
-docker build -t test-runner:latest . --quiet
-
-echo "Saving test-runner image to tar..."
-docker save test-runner:latest -o ${TEMP_DIR}/test-runner.tar
-
-IMAGE_SIZE=$(du -h ${TEMP_DIR}/test-runner.tar | cut -f1)
-echo "✅ Test-runner image saved (${IMAGE_SIZE})"
-echo ""
-
-cd ../../instructor-tools
 
 # ============================================================================
 # Build Task-02 KVStore Image
@@ -103,11 +89,6 @@ cd ../../../instructor-tools
 echo "=== Uploading Images to S3 ==="
 echo ""
 
-echo "Uploading test-runner.tar..."
-aws s3 cp ${TEMP_DIR}/test-runner.tar \
-    "s3://${TEMPLATES_BUCKET}/${IMAGES_PREFIX}/test-runner.tar" \
-    --region ${REGION}
-
 echo "Uploading kvstore.tar..."
 aws s3 cp ${TEMP_DIR}/kvstore.tar \
     "s3://${TEMPLATES_BUCKET}/${IMAGES_PREFIX}/kvstore.tar" \
@@ -126,14 +107,6 @@ cat > ${TEMP_DIR}/images-manifest.json <<EOF
 {
   "images": [
     {
-      "name": "test-runner",
-      "version": "latest",
-      "s3_url": "https://${TEMPLATES_BUCKET}.s3.${REGION}.amazonaws.com/${IMAGES_PREFIX}/test-runner.tar",
-      "description": "Test runner pod for HTTP endpoint testing",
-      "size": "$(stat -f%z ${TEMP_DIR}/test-runner.tar 2>/dev/null || stat -c%s ${TEMP_DIR}/test-runner.tar)",
-      "updated": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-    },
-    {
       "name": "kvstore",
       "version": "latest",
       "s3_url": "https://${TEMPLATES_BUCKET}.s3.${REGION}.amazonaws.com/${IMAGES_PREFIX}/kvstore.tar",
@@ -141,7 +114,8 @@ cat > ${TEMP_DIR}/images-manifest.json <<EOF
       "size": "$(stat -f%z ${TEMP_DIR}/kvstore.tar 2>/dev/null || stat -c%s ${TEMP_DIR}/kvstore.tar)",
       "updated": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
     }
-  ]
+  ],
+  "notes": "test-runner image is built locally on student EC2 instances to reduce S3 costs"
 }
 EOF
 
@@ -166,12 +140,14 @@ echo "║                    Upload Complete! ✅                    ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
 echo "📦 Images uploaded to S3:"
-echo "   - s3://${TEMPLATES_BUCKET}/${IMAGES_PREFIX}/test-runner.tar"
 echo "   - s3://${TEMPLATES_BUCKET}/${IMAGES_PREFIX}/kvstore.tar"
 echo ""
 echo "🔗 Public URLs:"
-echo "   Test-runner: https://${TEMPLATES_BUCKET}.s3.${REGION}.amazonaws.com/${IMAGES_PREFIX}/test-runner.tar"
 echo "   KVStore: https://${TEMPLATES_BUCKET}.s3.${REGION}.amazonaws.com/${IMAGES_PREFIX}/kvstore.tar"
+echo ""
+echo "💡 Cost Optimization:"
+echo "   - test-runner image is built locally on each student EC2 instance"
+echo "   - This eliminates S3 storage and transfer costs for the most commonly used image"
 echo ""
 echo "✅ CloudFormation will automatically download and import these images"
 echo "   during EC2 instance initialization."

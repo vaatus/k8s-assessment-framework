@@ -1,0 +1,886 @@
+#!/usr/bin/env python3
+"""
+kubeafr - Kubernetes Assessment Framework CLI
+
+A unified command-line interface for the Kubernetes Assessment Framework.
+Provides tools for both instructors and students.
+
+Usage:
+    kubeafr <command> [options]
+
+Commands:
+    Instructor Commands:
+        deploy              Deploy complete assessment infrastructure
+        upload-specs        Upload task specifications to S3
+        view-results        View student evaluation results
+        decode-token        Decode JWT evaluation tokens
+        reupload-template   Re-upload CloudFormation template to S3
+
+    Student Commands:
+        eval                Request evaluation of your current solution
+        submit              Submit your final solution
+        status              Check your current environment status
+        tasks               List available tasks and your progress
+
+    Utility Commands:
+        validate-spec       Validate task specification file
+        list-tasks          List all available tasks
+        check-prereqs       Check deployment prerequisites
+
+    Help:
+        help                Show this help message
+        version             Show version information
+        man                 Show detailed manual page
+
+Examples:
+    # Instructor usage
+    kubeafr deploy                     # Deploy infrastructure
+    kubeafr upload-specs               # Upload task specs
+    kubeafr view-results TEST01        # View student results
+
+    # Student usage
+    kubeafr eval task-01               # Request evaluation for task-01
+    kubeafr submit task-01             # Submit final solution for task-01
+    kubeafr status                     # Check environment status
+
+For detailed help on a command:
+    kubeafr <command> --help
+"""
+
+import sys
+import os
+import subprocess
+import json
+import argparse
+from pathlib import Path
+from typing import Optional, List
+import textwrap
+
+VERSION = "4.0.0"
+FRAMEWORK_ROOT = Path(__file__).parent.parent.absolute()
+
+
+class Colors:
+    """ANSI color codes for terminal output"""
+    RESET = '\033[0m'
+    BOLD = '\033[1m'
+    RED = '\033[91m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    MAGENTA = '\033[95m'
+
+    @staticmethod
+    def success(text: str) -> str:
+        return f"{Colors.GREEN}✓{Colors.RESET} {text}"
+
+    @staticmethod
+    def error(text: str) -> str:
+        return f"{Colors.RED}✗{Colors.RESET} {text}"
+
+    @staticmethod
+    def warning(text: str) -> str:
+        return f"{Colors.YELLOW}⚠{Colors.RESET} {text}"
+
+    @staticmethod
+    def info(text: str) -> str:
+        return f"{Colors.BLUE}ℹ{Colors.RESET} {text}"
+
+
+def print_header(text: str):
+    """Print a formatted header"""
+    print(f"\n{Colors.BOLD}{Colors.CYAN}{text}{Colors.RESET}")
+    print("=" * len(text))
+
+
+def print_banner():
+    """Print kubeafr banner"""
+    banner = f"""
+{Colors.CYAN}{Colors.BOLD}
+╦╔═╦ ╦╔╗ ╔═╗╔═╗╔═╗╦═╗
+╠╩╗║ ║╠╩╗║╣ ╠═╣╠╣ ╠╦╝
+╩ ╩╚═╝╚═╝╚═╝╩ ╩╚  ╩╚═
+{Colors.RESET}{Colors.MAGENTA}Kubernetes Assessment Framework{Colors.RESET}
+"""
+    print(banner)
+
+
+def run_script(script_name: str, args: List[str] = None) -> int:
+    """Run a bash script from instructor-tools"""
+    script_path = FRAMEWORK_ROOT / "instructor-tools" / script_name
+
+    if not script_path.exists():
+        print(Colors.error(f"Script not found: {script_path}"))
+        return 1
+
+    cmd = [str(script_path)]
+    if args:
+        cmd.extend(args)
+
+    try:
+        result = subprocess.run(cmd, cwd=str(script_path.parent))
+        return result.returncode
+    except Exception as e:
+        print(Colors.error(f"Failed to run script: {e}"))
+        return 1
+
+
+# ============================================================================
+# Instructor Commands
+# ============================================================================
+
+def cmd_deploy(args):
+    """Deploy complete assessment infrastructure"""
+    print_header("Deploying Assessment Infrastructure")
+    print(Colors.info("Running deployment script..."))
+    return run_script("deploy-complete-setup.sh")
+
+
+def cmd_upload_specs(args):
+    """Upload task specifications to S3"""
+    print_header("Uploading Task Specifications")
+
+    tasks_dir = FRAMEWORK_ROOT / "tasks"
+    if not tasks_dir.exists():
+        print(Colors.error("Tasks directory not found"))
+        return 1
+
+    # Count task specs
+    task_specs = list(tasks_dir.glob("task-*/task-spec.yaml"))
+    print(Colors.info(f"Found {len(task_specs)} task specifications"))
+
+    for spec in task_specs:
+        task_id = spec.parent.name
+        print(f"  • {task_id}")
+
+    return run_script("upload-task-specs.sh")
+
+
+def cmd_view_results(args):
+    """View student evaluation results"""
+    print_header("Student Evaluation Results")
+
+    if args.student_id:
+        print(Colors.info(f"Viewing results for student: {args.student_id}"))
+
+    # Run view-results.sh
+    script_args = [args.student_id] if args.student_id else []
+    return run_script("view-results.sh", script_args)
+
+
+def cmd_decode_token(args):
+    """Decode JWT evaluation token"""
+    print_header("JWT Token Decoder")
+
+    if not args.token:
+        print(Colors.error("Token required"))
+        print("Usage: kubeafr decode-token <token>")
+        return 1
+
+    token = args.token
+
+    # Check if token is a file
+    if os.path.isfile(token):
+        print(Colors.info(f"Reading token from file: {token}"))
+        with open(token, 'r') as f:
+            content = f.read().strip()
+            try:
+                data = json.loads(content)
+                token = data.get('eval_token', content)
+            except:
+                token = content
+
+    # Import jwt for decoding
+    try:
+        import jwt
+    except ImportError:
+        print(Colors.error("PyJWT not installed"))
+        print("Install with: pip3 install PyJWT")
+        return 1
+
+    # Get secret from environment or API_KEY.txt
+    api_key_file = FRAMEWORK_ROOT / "instructor-tools" / "API_KEY.txt"
+    secret = os.environ.get('JWT_SECRET') or os.environ.get('API_KEY')
+
+    if not secret and api_key_file.exists():
+        secret = api_key_file.read_text().strip()
+
+    if not secret:
+        print(Colors.warning("JWT_SECRET not found, decoding without verification"))
+        try:
+            payload = jwt.decode(token, options={"verify_signature": False})
+            verify = False
+        except Exception as e:
+            print(Colors.error(f"Failed to decode token: {e}"))
+            return 1
+    else:
+        try:
+            payload = jwt.decode(token, secret, algorithms=['HS256'])
+            verify = True
+        except jwt.InvalidTokenError:
+            print(Colors.warning("Signature verification failed, decoding anyway..."))
+            payload = jwt.decode(token, options={"verify_signature": False})
+            verify = False
+
+    # Display token info
+    if verify:
+        print(Colors.success("Token signature verified"))
+    else:
+        print(Colors.warning("Token decoded WITHOUT verification"))
+
+    print(f"\n{Colors.BOLD}Student ID:{Colors.RESET}    {payload.get('student_id')}")
+    print(f"{Colors.BOLD}Task ID:{Colors.RESET}       {payload.get('task_id')}")
+    print(f"{Colors.BOLD}Score:{Colors.RESET}         {payload.get('score')}/{payload.get('max_score')}")
+    print(f"{Colors.BOLD}Timestamp:{Colors.RESET}     {payload.get('timestamp')}")
+    print(f"{Colors.BOLD}Status:{Colors.RESET}        {payload.get('status')}")
+
+    # Display results
+    results = payload.get('results', {})
+    if results:
+        print(f"\n{Colors.BOLD}Evaluation Results:{Colors.RESET}")
+        passed = sum(1 for v in results.values() if v is True)
+        total = len(results)
+
+        for criterion, result in sorted(results.items()):
+            status = f"{Colors.GREEN}✓ PASS{Colors.RESET}" if result else f"{Colors.RED}✗ FAIL{Colors.RESET}"
+            print(f"  {criterion:<50} {status}")
+
+        print(f"\n{Colors.BOLD}Total:{Colors.RESET} {passed}/{total} checks passed")
+
+    if args.json:
+        print(f"\n{Colors.BOLD}Full JSON:{Colors.RESET}")
+        print(json.dumps(payload, indent=2))
+
+    return 0
+
+
+def cmd_reupload_template(args):
+    """Re-upload CloudFormation template to S3"""
+    print_header("Re-uploading CloudFormation Template")
+    return run_script("reupload-template.sh")
+
+
+# ============================================================================
+# Student Commands
+# ============================================================================
+
+def cmd_eval(args):
+    """Request evaluation of current solution"""
+    print_banner()
+    print_header("Requesting Evaluation")
+
+    if not args.task_id:
+        print(Colors.error("Task ID required"))
+        print("Usage: kubeafr eval <task-id>")
+        print("Example: kubeafr eval task-01")
+        return 1
+
+    task_id = args.task_id
+
+    # Load cluster info
+    cluster_info_path = Path.home() / ".kube-assessment" / "cluster-info.json"
+    if not cluster_info_path.exists():
+        print(Colors.error("Cluster info not found"))
+        print(Colors.info("Are you running this on a student EC2 instance?"))
+        return 1
+
+    try:
+        with open(cluster_info_path, 'r') as f:
+            cluster_info = json.load(f)
+    except Exception as e:
+        print(Colors.error(f"Failed to read cluster info: {e}"))
+        return 1
+
+    neptun_code = cluster_info.get('neptun_code')
+    kube_api = cluster_info.get('kube_api')
+    kube_token = cluster_info.get('kube_token')
+    public_ip = cluster_info.get('public_ip')
+
+    print(Colors.info(f"Student: {neptun_code}"))
+    print(Colors.info(f"Task: {task_id}"))
+    print()
+
+    # Prepare request payload
+    payload = {
+        'student_id': neptun_code,
+        'task_id': task_id,
+        'cluster_endpoint': kube_api,
+        'cluster_token': kube_token,
+        'public_ip': public_ip
+    }
+
+    # Get evaluation endpoint and API key from environment
+    eval_endpoint = os.environ.get('EVAL_ENDPOINT')
+    api_key = os.environ.get('API_KEY')
+
+    if not eval_endpoint or not api_key:
+        print(Colors.error("Evaluation endpoint or API key not configured"))
+        print(Colors.info("These should be set during EC2 initialization"))
+        return 1
+
+    print(Colors.info("Sending evaluation request..."))
+
+    # Send request using curl
+    import subprocess
+    try:
+        result = subprocess.run(
+            ['curl', '-s', '-w', '\nHTTP_CODE:%{http_code}', '-X', 'POST',
+             eval_endpoint,
+             '-H', 'Content-Type: application/json',
+             '-H', f'X-API-Key: {api_key}',
+             '-d', json.dumps(payload)],
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+
+        output = result.stdout
+        if 'HTTP_CODE:' in output:
+            body, code_line = output.rsplit('HTTP_CODE:', 1)
+            http_code = code_line.strip()
+        else:
+            body = output
+            http_code = '000'
+
+        if http_code == '200':
+            try:
+                response = json.loads(body)
+                print()
+                print(Colors.success("Evaluation complete!"))
+                print()
+
+                # Display results
+                score = response.get('score', 0)
+                max_score = response.get('max_score', 100)
+                status = response.get('status', 'unknown')
+
+                print(f"{Colors.BOLD}Score:{Colors.RESET}  {score}/{max_score} ({int(score/max_score*100)}%)")
+                print(f"{Colors.BOLD}Status:{Colors.RESET} {status}")
+
+                # Display evaluation details
+                results = response.get('results', {})
+                if results:
+                    print(f"\n{Colors.BOLD}Detailed Results:{Colors.RESET}")
+                    for criterion, result in sorted(results.items()):
+                        status_icon = f"{Colors.GREEN}✓{Colors.RESET}" if result else f"{Colors.RED}✗{Colors.RESET}"
+                        print(f"  {status_icon} {criterion}")
+
+                # Save response
+                import time
+                timestamp = int(time.time())
+                result_file = Path.home() / f"evaluation-results-{task_id}-{timestamp}.json"
+                with open(result_file, 'w') as f:
+                    json.dump(response, f, indent=2)
+
+                print()
+                print(Colors.info(f"Results saved to: {result_file}"))
+
+                return 0
+
+            except json.JSONDecodeError as e:
+                print(Colors.error(f"Invalid JSON response: {e}"))
+                print(body)
+                return 1
+        else:
+            print(Colors.error(f"Evaluation failed (HTTP {http_code})"))
+            print(body)
+            return 1
+
+    except subprocess.TimeoutExpired:
+        print(Colors.error("Request timed out after 120 seconds"))
+        return 1
+    except Exception as e:
+        print(Colors.error(f"Request failed: {e}"))
+        return 1
+
+
+def cmd_submit(args):
+    """Submit final solution"""
+    print_banner()
+    print_header("Submitting Final Solution")
+
+    if not args.task_id:
+        print(Colors.error("Task ID required"))
+        print("Usage: kubeafr submit <task-id>")
+        print("Example: kubeafr submit task-01")
+        return 1
+
+    task_id = args.task_id
+
+    print(Colors.warning("This will submit your current solution as final."))
+
+    if not args.yes:
+        confirm = input(f"{Colors.YELLOW}Are you sure? (yes/no):{Colors.RESET} ")
+        if confirm.lower() != 'yes':
+            print(Colors.info("Submission cancelled"))
+            return 0
+
+    # Load cluster info
+    cluster_info_path = Path.home() / ".kube-assessment" / "cluster-info.json"
+    if not cluster_info_path.exists():
+        print(Colors.error("Cluster info not found"))
+        return 1
+
+    try:
+        with open(cluster_info_path, 'r') as f:
+            cluster_info = json.load(f)
+    except Exception as e:
+        print(Colors.error(f"Failed to read cluster info: {e}"))
+        return 1
+
+    neptun_code = cluster_info.get('neptun_code')
+    kube_api = cluster_info.get('kube_api')
+    kube_token = cluster_info.get('kube_token')
+    public_ip = cluster_info.get('public_ip')
+
+    # Get endpoints from environment
+    eval_endpoint = os.environ.get('EVAL_ENDPOINT')
+    submit_endpoint = os.environ.get('SUBMIT_ENDPOINT')
+    api_key = os.environ.get('API_KEY')
+
+    if not all([eval_endpoint, submit_endpoint, api_key]):
+        print(Colors.error("Endpoints or API key not configured"))
+        return 1
+
+    print(Colors.info("Running final evaluation..."))
+
+    # First, run evaluation to get eval_token
+    eval_payload = {
+        'student_id': neptun_code,
+        'task_id': task_id,
+        'cluster_endpoint': kube_api,
+        'cluster_token': kube_token,
+        'public_ip': public_ip
+    }
+
+    try:
+        result = subprocess.run(
+            ['curl', '-s', '-X', 'POST',
+             eval_endpoint,
+             '-H', 'Content-Type: application/json',
+             '-H', f'X-API-Key: {api_key}',
+             '-d', json.dumps(eval_payload)],
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+
+        eval_response = json.loads(result.stdout)
+        eval_token = eval_response.get('eval_token')
+
+        if not eval_token:
+            print(Colors.error("Failed to get evaluation token"))
+            print(json.dumps(eval_response, indent=2))
+            return 1
+
+        print(Colors.success(f"Evaluation token received (score: {eval_response.get('score')}/{eval_response.get('max_score')})"))
+
+        # Now submit with the eval_token
+        print(Colors.info("Submitting final results..."))
+
+        submit_payload = {
+            'student_id': neptun_code,
+            'task_id': task_id,
+            'eval_token': eval_token
+        }
+
+        result = subprocess.run(
+            ['curl', '-s', '-w', '\nHTTP_CODE:%{http_code}', '-X', 'POST',
+             submit_endpoint,
+             '-H', 'Content-Type: application/json',
+             '-H', f'X-API-Key: {api_key}',
+             '-d', json.dumps(submit_payload)],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+
+        output = result.stdout
+        if 'HTTP_CODE:' in output:
+            body, code_line = output.rsplit('HTTP_CODE:', 1)
+            http_code = code_line.strip()
+        else:
+            body = output
+            http_code = '000'
+
+        if http_code == '200':
+            submit_response = json.loads(body)
+            print()
+            print(Colors.success("Submission successful!"))
+            print(Colors.info("Your results have been submitted to the instructor."))
+            print()
+            print(f"{Colors.BOLD}Student ID:{Colors.RESET}  {neptun_code}")
+            print(f"{Colors.BOLD}Task ID:{Colors.RESET}     {task_id}")
+            print(f"{Colors.BOLD}Score:{Colors.RESET}       {eval_response.get('score')}/{eval_response.get('max_score')}")
+            print(f"{Colors.BOLD}Timestamp:{Colors.RESET}   {submit_response.get('timestamp')}")
+            return 0
+        else:
+            print(Colors.error(f"Submission failed (HTTP {http_code})"))
+            print(body)
+            return 1
+
+    except Exception as e:
+        print(Colors.error(f"Submission failed: {e}"))
+        return 1
+
+
+def cmd_status(args):
+    """Check environment status"""
+    print_banner()
+    print_header("Environment Status")
+
+    # Check if running on student instance
+    cluster_info_path = Path.home() / ".kube-assessment" / "cluster-info.json"
+    if not cluster_info_path.exists():
+        print(Colors.error("Not running on a student EC2 instance"))
+        print(Colors.info("This command is only available in the student environment"))
+        return 1
+
+    try:
+        with open(cluster_info_path, 'r') as f:
+            cluster_info = json.load(f)
+    except Exception as e:
+        print(Colors.error(f"Failed to read cluster info: {e}"))
+        return 1
+
+    # Display environment info
+    print(f"\n{Colors.BOLD}Student Information:{Colors.RESET}")
+    print(f"  Neptun Code:  {cluster_info.get('neptun_code')}")
+    print(f"  Task ID:      {cluster_info.get('task_id')}")
+    print(f"  Public IP:    {cluster_info.get('public_ip')}")
+
+    # Check K3s status
+    print(f"\n{Colors.BOLD}Kubernetes Cluster:{Colors.RESET}")
+    try:
+        result = subprocess.run(['kubectl', 'cluster-info'], capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            print(Colors.success("K3s cluster is running"))
+        else:
+            print(Colors.error("K3s cluster not responding"))
+    except Exception as e:
+        print(Colors.error(f"Failed to check cluster status: {e}"))
+
+    # Check node status
+    try:
+        result = subprocess.run(['kubectl', 'get', 'nodes'], capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            if len(lines) > 1:
+                node_line = lines[1]
+                if 'Ready' in node_line:
+                    print(Colors.success("Node is Ready"))
+                else:
+                    print(Colors.warning(f"Node status: {node_line.split()[1]}"))
+    except Exception:
+        pass
+
+    # Check resources in task namespace
+    task_id = cluster_info.get('task_id')
+    if task_id:
+        print(f"\n{Colors.BOLD}Resources in {task_id} namespace:{Colors.RESET}")
+        try:
+            result = subprocess.run(
+                ['kubectl', 'get', 'all', '-n', task_id],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                print(result.stdout)
+            else:
+                print(Colors.warning("No resources found or namespace doesn't exist"))
+        except Exception as e:
+            print(Colors.error(f"Failed to check resources: {e}"))
+
+    return 0
+
+
+def cmd_tasks(args):
+    """List available tasks"""
+    print_banner()
+    print_header("Available Tasks")
+
+    # Check if running on student instance
+    cluster_info_path = Path.home() / ".kube-assessment" / "cluster-info.json"
+    if cluster_info_path.exists():
+        try:
+            with open(cluster_info_path, 'r') as f:
+                cluster_info = json.load(f)
+                current_task = cluster_info.get('task_id')
+                print(Colors.info(f"Your assigned task: {Colors.BOLD}{current_task}{Colors.RESET}"))
+                print()
+        except:
+            pass
+
+    # List tasks from local workspace
+    workspace = Path.home() / "k8s-workspace" / "tasks"
+    if workspace.exists():
+        tasks = sorted([d for d in workspace.iterdir() if d.is_dir() and d.name.startswith('task-')])
+
+        for task_dir in tasks:
+            task_id = task_dir.name
+            readme = task_dir / "README.md"
+
+            if readme.exists():
+                # Extract task name from README
+                try:
+                    with open(readme, 'r') as f:
+                        first_line = f.readline().strip()
+                        if first_line.startswith('#'):
+                            task_name = first_line.lstrip('#').strip()
+                        else:
+                            task_name = task_id
+                except:
+                    task_name = task_id
+
+                icon = f"{Colors.GREEN}▸{Colors.RESET}"
+                print(f"{icon} {Colors.BOLD}{task_id}{Colors.RESET}: {task_name}")
+            else:
+                print(f"  {task_id}")
+
+        print()
+        print(Colors.info(f"Total: {len(tasks)} tasks available"))
+    else:
+        print(Colors.warning("Tasks workspace not found"))
+        print(Colors.info("Tasks are typically in ~/k8s-workspace/tasks/"))
+
+    return 0
+
+
+# ============================================================================
+# Utility Commands
+# ============================================================================
+
+def cmd_validate_spec(args):
+    """Validate task specification file"""
+    print_header("Task Specification Validator")
+
+    if not args.task_id:
+        print(Colors.error("Task ID required"))
+        print("Usage: kubeafr validate-spec <task-id>")
+        return 1
+
+    task_id = args.task_id
+    spec_path = FRAMEWORK_ROOT / "tasks" / task_id / "task-spec.yaml"
+
+    if not spec_path.exists():
+        print(Colors.error(f"Task spec not found: {spec_path}"))
+        return 1
+
+    print(Colors.info(f"Validating: {spec_path}"))
+
+    # Load and validate YAML
+    try:
+        import yaml
+        with open(spec_path, 'r') as f:
+            spec = yaml.safe_load(f)
+    except Exception as e:
+        print(Colors.error(f"YAML parsing failed: {e}"))
+        return 1
+
+    # Validate required fields
+    required_fields = ['task_id', 'task_name', 'namespace', 'required_resources', 'scoring']
+    errors = []
+    warnings = []
+
+    for field in required_fields:
+        if field not in spec:
+            errors.append(f"Missing required field: {field}")
+
+    # Validate task_id matches directory
+    if spec.get('task_id') != task_id:
+        errors.append(f"task_id '{spec.get('task_id')}' doesn't match directory '{task_id}'")
+
+    # Validate namespace
+    if spec.get('namespace') != task_id:
+        warnings.append(f"namespace '{spec.get('namespace')}' doesn't match task_id '{task_id}'")
+
+    # Validate scoring
+    if 'scoring' in spec:
+        scoring = spec['scoring']
+        if 'max_score' not in scoring:
+            warnings.append("scoring.max_score not specified (defaults to 100)")
+
+        if 'criteria' not in scoring:
+            errors.append("scoring.criteria is required")
+        else:
+            total_points = sum(c.get('points', 0) for c in scoring['criteria'])
+            max_score = scoring.get('max_score', 100)
+            if total_points != max_score:
+                warnings.append(f"Criteria points ({total_points}) don't sum to max_score ({max_score})")
+
+    # Print results
+    if errors:
+        print(f"\n{Colors.RED}{Colors.BOLD}Errors:{Colors.RESET}")
+        for error in errors:
+            print(f"  {Colors.error(error)}")
+
+    if warnings:
+        print(f"\n{Colors.YELLOW}{Colors.BOLD}Warnings:{Colors.RESET}")
+        for warning in warnings:
+            print(f"  {Colors.warning(warning)}")
+
+    if not errors and not warnings:
+        print(Colors.success("Validation passed!"))
+        return 0
+    elif not errors:
+        print(f"\n{Colors.success('Validation passed with warnings')}")
+        return 0
+    else:
+        print(f"\n{Colors.error('Validation failed')}")
+        return 1
+
+
+def cmd_list_tasks(args):
+    """List all available tasks"""
+    print_header("Available Tasks")
+
+    tasks_dir = FRAMEWORK_ROOT / "tasks"
+    if not tasks_dir.exists():
+        print(Colors.error("Tasks directory not found"))
+        return 1
+
+    tasks = sorted([d for d in tasks_dir.iterdir() if d.is_dir() and d.name.startswith('task-')])
+
+    if not tasks:
+        print(Colors.warning("No tasks found"))
+        return 0
+
+    print(f"\n{Colors.BOLD}{'Task ID':<15} {'Task Name':<40} {'Type':<15} {'Spec'}{Colors.RESET}")
+    print("-" * 80)
+
+    for task_dir in tasks:
+        task_id = task_dir.name
+        spec_path = task_dir / "task-spec.yaml"
+
+        if spec_path.exists():
+            try:
+                import yaml
+                with open(spec_path, 'r') as f:
+                    spec = yaml.safe_load(f)
+                task_name = spec.get('task_name', 'N/A')
+                task_type = spec.get('task_type', 'N/A')
+                has_spec = f"{Colors.GREEN}✓{Colors.RESET}"
+            except:
+                task_name = "Error reading spec"
+                task_type = "N/A"
+                has_spec = f"{Colors.RED}✗{Colors.RESET}"
+        else:
+            task_name = "No spec file"
+            task_type = "N/A"
+            has_spec = f"{Colors.RED}✗{Colors.RESET}"
+
+        print(f"{task_id:<15} {task_name:<40} {task_type:<15} {has_spec}")
+
+    print(f"\n{Colors.info(f'Total: {len(tasks)} tasks')}")
+    return 0
+
+
+def cmd_check_prereqs(args):
+    """Check deployment prerequisites"""
+    print_header("Checking Prerequisites")
+    return run_script("check-prerequisites.sh")
+
+
+def cmd_version(args):
+    """Show version information"""
+    print_banner()
+    print(f"Version {VERSION}")
+    print(f"Kubernetes Assessment Framework")
+    return 0
+
+
+def cmd_help(args):
+    """Show help message"""
+    print(__doc__)
+    return 0
+
+
+def main():
+    """Main CLI entry point"""
+    parser = argparse.ArgumentParser(
+        description="Kubernetes Assessment Framework CLI",
+        add_help=False
+    )
+
+    subparsers = parser.add_subparsers(dest='command', help='Command to execute')
+
+    # Instructor commands
+    subparsers.add_parser('deploy', help='Deploy assessment infrastructure')
+    subparsers.add_parser('upload-specs', help='Upload task specifications to S3')
+
+    view_parser = subparsers.add_parser('view-results', help='View student results')
+    view_parser.add_argument('student_id', nargs='?', help='Student ID to filter')
+
+    decode_parser = subparsers.add_parser('decode-token', help='Decode JWT token')
+    decode_parser.add_argument('token', help='JWT token or file path')
+    decode_parser.add_argument('--json', action='store_true', help='Output full JSON')
+
+    subparsers.add_parser('reupload-template', help='Re-upload CloudFormation template')
+
+    # Student commands
+    eval_parser = subparsers.add_parser('eval', help='Request evaluation')
+    eval_parser.add_argument('task_id', nargs='?', help='Task ID (e.g., task-01)')
+
+    submit_parser = subparsers.add_parser('submit', help='Submit final solution')
+    submit_parser.add_argument('task_id', nargs='?', help='Task ID (e.g., task-01)')
+    submit_parser.add_argument('-y', '--yes', action='store_true', help='Skip confirmation')
+
+    subparsers.add_parser('status', help='Check environment status')
+    subparsers.add_parser('tasks', help='List available tasks')
+
+    # Utility commands
+    validate_parser = subparsers.add_parser('validate-spec', help='Validate task specification')
+    validate_parser.add_argument('task_id', nargs='?', help='Task ID (e.g., task-07)')
+
+    subparsers.add_parser('list-tasks', help='List all available tasks')
+    subparsers.add_parser('check-prereqs', help='Check deployment prerequisites')
+
+    # Help commands
+    subparsers.add_parser('help', help='Show help message')
+    subparsers.add_parser('version', help='Show version')
+
+    args = parser.parse_args()
+
+    # Command routing
+    commands = {
+        'deploy': cmd_deploy,
+        'upload-specs': cmd_upload_specs,
+        'view-results': cmd_view_results,
+        'decode-token': cmd_decode_token,
+        'reupload-template': cmd_reupload_template,
+        'eval': cmd_eval,
+        'submit': cmd_submit,
+        'status': cmd_status,
+        'tasks': cmd_tasks,
+        'validate-spec': cmd_validate_spec,
+        'list-tasks': cmd_list_tasks,
+        'check-prereqs': cmd_check_prereqs,
+        'version': cmd_version,
+        'help': cmd_help,
+    }
+
+    if not args.command:
+        cmd_help(args)
+        return 0
+
+    if args.command in commands:
+        return commands[args.command](args)
+    else:
+        print(Colors.error(f"Unknown command: {args.command}"))
+        print("Run 'kubeafr help' for usage information")
+        return 1
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        print(f"\n{Colors.warning('Interrupted by user')}")
+        sys.exit(130)
+    except Exception as e:
+        print(Colors.error(f"Unexpected error: {e}"))
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

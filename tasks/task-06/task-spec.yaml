@@ -1,0 +1,84 @@
+task_id: "task-06"
+task_name: "Multi-Replica Web App with Config"
+task_type: "deployment"
+namespace: "task-06"
+
+description: |
+  Test task to verify dynamic evaluation system.
+  Create a web application deployment with ConfigMap and Secret.
+  This tests if new tasks work without code changes.
+
+required_resources:
+  deployments:
+    - name: "web-app"
+      replicas: 3
+      selector_labels:
+        app: "webapp"
+        tier: "frontend"
+      containers:
+        - name: "nginx"
+          image_pattern: "nginx"
+          ports:
+            - containerPort: 80
+          resources:
+            limits_required: true
+
+  services:
+    - name: "webapp-service"
+      type: "NodePort"
+      selector_labels:
+        app: "webapp"
+      ports:
+        - port: 8080
+          targetPort: 80
+
+  configmaps:
+    - name: "webapp-config"
+      required_keys:
+        - "app.name"
+        - "environment"
+
+  secrets:
+    - name: "webapp-secrets"
+      required_keys:
+        - "api-key"
+
+scoring:
+  max_score: 100
+  criteria:
+    - id: "deployment_web-app_exists"
+      description: "Deployment 'web-app' exists"
+      points: 20
+      required: true
+
+    - id: "deployment_web-app_replicas_correct"
+      description: "Deployment has 3 replicas"
+      points: 15
+
+    - id: "deployment_web-app_image_correct"
+      description: "Uses nginx image"
+      points: 10
+
+    - id: "deployment_web-app_resources_set"
+      description: "Resource limits configured"
+      points: 10
+
+    - id: "deployment_web-app_labels_correct"
+      description: "Labels match selector"
+      points: 10
+
+    - id: "deployment_web-app_pods_running"
+      description: "All pods running"
+      points: 10
+
+    - id: "service_webapp-service_exists"
+      description: "Service 'webapp-service' exists"
+      points: 10
+
+    - id: "configmap_webapp-config_exists"
+      description: "ConfigMap 'webapp-config' exists with required keys"
+      points: 10
+
+    - id: "secret_webapp-secrets_exists"
+      description: "Secret 'webapp-secrets' exists"
+      points: 5

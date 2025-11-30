@@ -37,10 +37,12 @@ fi
 echo ""
 echo "This script will set up the Kubernetes assessment framework:"
 echo "  • Create S3 buckets (results and templates)"
-echo "  • Build and upload Docker images (test-runner, kvstore)"
+echo "  • Build and upload Docker images (kvstore, task apps)"
 echo "  • Deploy Lambda functions with dynamic evaluator"
 echo "  • Configure CloudFormation template"
 echo "  • Generate student deployment link"
+echo ""
+echo "💡 Cost Optimization: test-runner image is built locally on student EC2"
 echo ""
 read -p "Continue? (yes/no): " CONFIRM
 
@@ -327,6 +329,15 @@ echo "⏳ Uploading template to S3..."
 aws s3 cp ${TEMPLATE_FILE}.tmp "s3://${TEMPLATES_BUCKET}/${TEMPLATE_FILE}" --region ${REGION} 2>/dev/null
 rm ${TEMPLATE_FILE}.tmp
 echo "✅ CloudFormation template configured"
+
+# Upload kubeafr CLI to S3
+echo "⏳ Uploading kubeafr CLI to S3..."
+if [ -f "../cli/kubeafr" ]; then
+    aws s3 cp ../cli/kubeafr "s3://${TEMPLATES_BUCKET}/tools/kubeafr" --region ${REGION} 2>/dev/null
+    echo "✅ kubeafr CLI uploaded"
+else
+    echo "⚠️  kubeafr CLI not found, skipping"
+fi
 
 # ============================================================================
 # Step 5: Generate Student Deployment Link

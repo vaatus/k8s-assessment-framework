@@ -24,7 +24,6 @@ This framework enables instructors to deploy a complete Kubernetes assessment in
 - ✅ **Secure**: API key authentication, private S3 storage for results
 - ✅ **Scalable**: Support for multiple students and tasks
 - ✅ **Extensible**: Easy to add new tasks with custom validation logic
-- ✅ **Policy Enforcement**: Kyverno policies installed for advanced scenarios
 
 ## Quick Start
 
@@ -73,25 +72,24 @@ k8s-assessment-framework/
 │   └── unified-student-template.yaml          # Student CloudFormation template
 ├── evaluation/
 │   └── lambda/
-│       ├── evaluator.py                       # Evaluation Lambda function
-│       └── requirements.txt                   # Python dependencies (PyYAML, requests)
+│       ├── evaluator_dynamic.py               # Evaluation Lambda function
+│       └── requirements.txt                   # Python dependencies (PyYAML, requests, PyJWT)
 ├── submission/
 │   └── lambda/
 │       └── submitter.py                       # Submission Lambda function
 ├── instructor-tools/
 │   ├── deploy-complete-setup.sh               # Main deployment script
 │   ├── view-results.sh                        # View student results
-│   ├── test-complete-deployment.sh            # Test infrastructure
-│   ├── check-prerequisites.sh                 # Pre-deployment checks
+│   ├── upload-task-specs.sh                   # Upload task specifications
+│   ├── decode-jwt-token.py                    # JWT token decoder
 │   └── reupload-template.sh                   # Quick template re-upload
 ├── tasks/
-│   └── task-01/
-│       └── README.md                          # Task description
-├── policies/
-│   └── (Kyverno policy examples)
-├── README.md                                  # This file
-├── FULL_SETUP_GUIDE.md                        # Complete testing guide
-└── LICENSE
+│   ├── task-01/ ... task-06/                  # Task specifications
+│   └── task-spec.example.yaml                 # Task spec template
+├── docs/                                      # Documentation
+│   ├── guides/                                # Setup and deployment guides
+│   └── *.md                                   # Technical documentation
+└── README.md                                  # This file
 ```
 
 ## How It Works
@@ -113,7 +111,6 @@ k8s-assessment-framework/
 Each student stack creates:
 - VPC with public subnet
 - EC2 instance (t3.medium) with K3s cluster
-- Kyverno policy engine
 - Task-specific namespace
 - Service account with cluster-admin role (for remote evaluation)
 - Student tools (evaluation and submission scripts)
@@ -277,14 +274,9 @@ When AWS Learner Lab session expires:
 
 ### Modifying Evaluation Logic
 
-1. Edit `evaluation/lambda/evaluator.py`
-2. Update `evaluate_task()` function for your criteria
-3. Update `calculate_score()` function for point allocation
-4. Redeploy: `./deploy-complete-setup.sh`
-
-### Custom Policies
-
-Place Kyverno policies in `policies/` directory and add to CloudFormation UserData for automatic installation.
+1. Edit `evaluation/lambda/evaluator_dynamic.py`
+2. Update resource check methods as needed
+3. Redeploy: `./deploy-complete-setup.sh`
 
 ## Troubleshooting
 
@@ -314,7 +306,8 @@ Place Kyverno policies in `policies/` directory and add to CloudFormation UserDa
 ### For Developers
 - `evaluation/test-runner/README.md` - Test-runner pod documentation
 - `evaluation/lambda/evaluator_dynamic.py` - Dynamic evaluator (production)
-- `evaluation/lambda/archived/` - Deprecated evaluators (reference only)
+- `docs/DYNAMIC-EVALUATION-ANALYSIS.md` - Extensibility guide
+- `docs/JWT-SECURITY-IMPLEMENTATION.md` - Security implementation
 
 ## System Architecture
 

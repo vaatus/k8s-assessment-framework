@@ -292,23 +292,295 @@ Resources:
               sleep 5
             done
 
-            # Install Kyverno
-            echo "Installing Kyverno..."
-            kubectl create -f https://github.com/kyverno/kyverno/releases/download/v1.10.0/install.yaml
+            # Build test-runner image locally (to reduce S3 costs)
+            echo "Building test-runner image locally..."
+            mkdir -p /tmp/test-runner-build
 
-            # Wait for Kyverno to be ready
-            echo "Waiting for Kyverno to be ready..."
-            kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kyverno -n kyverno --timeout=300s || true
+            # Create test_runner.py
+            cat > /tmp/test-runner-build/test_runner.py <<'EOFTESTRUNNER'
+            #!/usr/bin/env python3
+            """
+            Test Runner Pod - Executes application-level checks inside student cluster
+            Runs HTTP endpoint tests, data persistence checks, and graceful shutdown validation
+            """
 
-            # Download and import Docker images from S3
-            echo "Downloading Docker images from S3..."
+            import json
+            import sys
+            import os
+            import requests
+            import time
+            from datetime import datetime
+
+
+            class TestRunner:
+                def __init__(self, checks):
+                    self.checks = checks
+                    self.results = {}
+
+                def run_all_checks(self):
+                    """
+                    Execute all checks defined in the test specification
+                    """
+                    for check in self.checks:
+                        check_id = check['check_id']
+                        check_type = check['check_type']
+
+                        print(f"Running check: {check_id} (type: {check_type})")
+
+                        try:
+                            if check_type == 'http_get':
+                                result = self.http_get_check(check)
+                            elif check_type == 'http_post':
+                                result = self.http_post_check(check)
+                            elif check_type == 'data_persistence':
+                                result = self.data_persistence_check(check)
+                            elif check_type == 'graceful_shutdown':
+                                result = self.graceful_shutdown_check(check)
+                            else:
+                                print(f"Unknown check type: {check_type}")
+                                result = {
+                                    'passed': False,
+                                    'message': f'Unknown check type: {check_type}'
+                                }
+
+                            self.results[check_id] = result
+
+                        except Exception as e:
+                            print(f"Error running check {check_id}: {e}")
+                            self.results[check_id] = {
+                                'passed': False,
+                                'message': str(e)
+                            }
+
+                    return self.results
+
+                def http_get_check(self, check):
+                    """
+                    Perform HTTP GET request and validate response
+                    """
+                    service = check.get('service')
+                    port = check.get('port', 80)
+                    path = check.get('path', '/')
+                    namespace = check.get('namespace', 'default')
+                    target_pod = check.get('target_pod')
+                    expected_status = check.get('expected_status', 200)
+                    expected_body_contains = check.get('expected_body_contains')
+                    expected_json_fields = check.get('expected_json_fields', [])
+                    timeout = check.get('timeout', 30)
+
+                    # Build URL (cluster-internal)
+                    if target_pod:
+                        url = f'http://{target_pod}.{service}.{namespace}.svc.cluster.local:{port}{path}'
+                    else:
+                        url = f'http://{service}.{namespace}.svc.cluster.local:{port}{path}'
+
+                    print(f"  GET {url}")
+
+                    try:
+                        response = requests.get(url, timeout=timeout)
+
+                        # Check status code
+                        status_ok = (response.status_code == expected_status)
+
+                        # Check body contains expected string
+                        body_ok = True
+                        if expected_body_contains:
+                            body_ok = expected_body_contains in response.text
+
+                        # Check JSON fields
+                        json_ok = True
+                        if expected_json_fields:
+                            try:
+                                data = response.json()
+                                json_ok = all(field in data for field in expected_json_fields)
+                            except:
+                                json_ok = False
+
+                        passed = status_ok and body_ok and json_ok
+
+                        return {
+                            'passed': passed,
+                            'status_code': response.status_code,
+                            'status_ok': status_ok,
+                            'body_ok': body_ok,
+                            'json_ok': json_ok,
+                            'message': f'Status: {response.status_code}, Body check: {body_ok}, JSON check: {json_ok}'
+                        }
+
+                    except requests.exceptions.Timeout:
+                        return {
+                            'passed': False,
+                            'message': f'Request timeout after {timeout}s'
+                        }
+                    except requests.exceptions.ConnectionError as e:
+                        return {
+                            'passed': False,
+                            'message': f'Connection error: {str(e)}'
+                        }
+                    except Exception as e:
+                        return {
+                            'passed': False,
+                            'message': f'Error: {str(e)}'
+                        }
+
+                def http_post_check(self, check):
+                    """
+                    Perform HTTP POST request and validate response
+                    """
+                    service = check.get('service')
+                    port = check.get('port', 80)
+                    path = check.get('path', '/')
+                    namespace = check.get('namespace', 'default')
+                    target_pod = check.get('target_pod')
+                    body = check.get('body', '')
+                    expected_status = check.get('expected_status', 200)
+                    timeout = check.get('timeout', 30)
+
+                    # Build URL
+                    if target_pod:
+                        url = f'http://{target_pod}.{service}.{namespace}.svc.cluster.local:{port}{path}'
+                    else:
+                        url = f'http://{service}.{namespace}.svc.cluster.local:{port}{path}'
+
+                    print(f"  POST {url}")
+
+                    try:
+                        response = requests.post(url, data=body, timeout=timeout)
+
+                        status_ok = (response.status_code == expected_status)
+
+                        return {
+                            'passed': status_ok,
+                            'status_code': response.status_code,
+                            'message': f'Status: {response.status_code}'
+                        }
+
+                    except requests.exceptions.Timeout:
+                        return {
+                            'passed': False,
+                            'message': f'Request timeout after {timeout}s'
+                        }
+                    except Exception as e:
+                        return {
+                            'passed': False,
+                            'message': f'Error: {str(e)}'
+                        }
+
+                def data_persistence_check(self, check):
+                    """
+                    Check data persistence by storing, restarting pod, and retrieving
+                    """
+                    steps = check.get('validation_steps', [])
+                    namespace = check.get('namespace', 'default')
+
+                    print(f"  Running data persistence test with {len(steps)} steps")
+
+                    # This is a complex check that would need kubectl access
+                    # For now, return a placeholder
+                    return {
+                        'passed': False,
+                        'message': 'Data persistence check requires kubectl access (not implemented yet)'
+                    }
+
+                def graceful_shutdown_check(self, check):
+                    """
+                    Check graceful shutdown behavior
+                    """
+                    steps = check.get('validation_steps', [])
+
+                    print(f"  Running graceful shutdown test with {len(steps)} steps")
+
+                    # This is a complex check that would need kubectl access
+                    return {
+                        'passed': False,
+                        'message': 'Graceful shutdown check requires kubectl access (not implemented yet)'
+                    }
+
+
+            def main():
+                """
+                Main entry point - reads checks from environment variable and outputs results to stdout
+                """
+                print("Test Runner Starting...")
+                print(f"Time: {datetime.utcnow().isoformat()}")
+
+                try:
+                    # Read checks from environment variable (passed by Lambda)
+                    test_spec_json = os.environ.get('TEST_SPEC')
+
+                    if not test_spec_json:
+                        raise Exception("TEST_SPEC environment variable not set")
+
+                    checks_spec = json.loads(test_spec_json)
+
+                    checks = checks_spec.get('checks', [])
+                    print(f"Loaded {len(checks)} checks")
+
+                    # Run all checks
+                    runner = TestRunner(checks)
+                    results = runner.run_all_checks()
+
+                    # Output results as JSON to stdout
+                    output = {
+                        'success': True,
+                        'timestamp': datetime.utcnow().isoformat(),
+                        'results': results
+                    }
+
+                    print("\n=== TEST RESULTS ===")
+                    print(json.dumps(output))
+
+                except Exception as e:
+                    print(f"Fatal error: {e}", file=sys.stderr)
+                    output = {
+                        'success': False,
+                        'error': str(e)
+                    }
+                    print(json.dumps(output))
+                    sys.exit(1)
+
+
+            if __name__ == '__main__':
+                main()
+            EOFTESTRUNNER
+
+            # Create Dockerfile
+            cat > /tmp/test-runner-build/Dockerfile <<'EOFDOCKERFILE'
+            FROM python:3.11-slim
+
+            WORKDIR /app
+
+            # Install required packages
+            RUN pip install --no-cache-dir requests==2.31.0
+
+            # Copy test runner
+            COPY test_runner.py /app/test_runner.py
+            RUN chmod +x /app/test_runner.py
+
+            # Run as non-root user
+            RUN useradd -m -u 1000 testrunner
+            USER testrunner
+
+            ENTRYPOINT ["python3", "/app/test_runner.py"]
+            EOFDOCKERFILE
+
+            # Build the image
+            echo "Building test-runner Docker image..."
+            docker build -t test-runner:latest /tmp/test-runner-build
+
+            # Import into K3s
+            echo "Importing test-runner image into K3s..."
+            docker save test-runner:latest | k3s ctr images import - && \
+              echo "✅ test-runner:latest built and imported successfully" || \
+              echo "❌ Failed to build/import test-runner image"
+
+            # Cleanup build directory
+            rm -rf /tmp/test-runner-build
+
+            # Download other Docker images from S3 (for specific tasks)
+            echo "Downloading task-specific Docker images from S3..."
             IMAGES_BUCKET="k8s-assessment-templates"
             IMAGES_PREFIX="docker-images"
-
-            # Download test-runner image
-            echo "Downloading test-runner image..."
-            wget -q -O /tmp/test-runner.tar "https://${!IMAGES_BUCKET}.s3.us-east-1.amazonaws.com/${!IMAGES_PREFIX}/test-runner.tar" || \
-              echo "Warning: test-runner image not found in S3, skipping..."
 
             # Download kvstore image (for task-02)
             echo "Downloading kvstore image..."
@@ -325,14 +597,8 @@ Resources:
             wget -q -O /tmp/frontend.tar "https://${!IMAGES_BUCKET}.s3.us-east-1.amazonaws.com/${!IMAGES_PREFIX}/frontend.tar" || \
               echo "Warning: frontend image not found in S3, skipping..."
 
-            # Import images into K3s
-            echo "Importing Docker images into K3s..."
-            if [ -f /tmp/test-runner.tar ]; then
-              k3s ctr images import /tmp/test-runner.tar && \
-                echo "✅ test-runner:latest imported successfully" || \
-                echo "❌ Failed to import test-runner image"
-              rm -f /tmp/test-runner.tar
-            fi
+            # Import task-specific images into K3s
+            echo "Importing task-specific Docker images into K3s..."
 
             if [ -f /tmp/kvstore.tar ]; then
               k3s ctr images import /tmp/kvstore.tar && \
@@ -450,9 +716,11 @@ Resources:
             1. Create your solution YAML file(s) in this directory
             2. Apply your solution: \`kubectl apply -f your-solution.yaml\`
             3. Verify it works: \`kubectl get all\`
-            4. Request evaluation: \`~/student-tools/request-evaluation.sh ${TaskSelection}\`
+            4. Request evaluation: \`kubeafr eval ${TaskSelection}\`
             5. Review results and fix any issues
-            6. Submit when ready: \`~/student-tools/submit-final.sh ${TaskSelection}\`
+            6. Submit when ready: \`kubeafr submit ${TaskSelection}\`
+
+            **Tip:** You can also use shortcuts: \`eval ${TaskSelection}\` or \`submit ${TaskSelection}\`
 
             ## Example Solution Structure
 
@@ -498,183 +766,61 @@ Resources:
 
             chown -R ubuntu:ubuntu /home/ubuntu/k8s-workspace
 
-            # Create student tools directory
+            # Install kubeafr CLI tool for students
+            echo "Installing kubeafr CLI..."
+            TEMPLATES_BUCKET="k8s-assessment-templates"
+
+            # Download kubeafr from S3
+            wget -q -O /tmp/kubeafr "https://${!TEMPLATES_BUCKET}.s3.us-east-1.amazonaws.com/tools/kubeafr" || \
+              echo "Warning: kubeafr not found in S3, skipping CLI installation..."
+
+            if [ -f /tmp/kubeafr ]; then
+              # Install to /usr/local/bin
+              mv /tmp/kubeafr /usr/local/bin/kubeafr
+              chmod +x /usr/local/bin/kubeafr
+              echo "✅ kubeafr CLI installed to /usr/local/bin/kubeafr"
+
+              # Set up environment variables for student commands
+              cat >> /home/ubuntu/.bashrc <<'EOFBASHRC'
+
+# Kubernetes Assessment Framework environment
+export EVAL_ENDPOINT="${EvaluationEndpoint}"
+export SUBMIT_ENDPOINT="${SubmissionEndpoint}"
+export API_KEY="${ApiKey}"
+
+# kubeafr CLI
+alias eval="kubeafr eval"
+alias submit="kubeafr submit"
+alias k8s-status="kubeafr status"
+alias k8s-tasks="kubeafr tasks"
+EOFBASHRC
+
+              # Replace placeholders in .bashrc
+              sed -i "s|\${EvaluationEndpoint}|${EvaluationEndpoint}|g" /home/ubuntu/.bashrc
+              sed -i "s|\${SubmissionEndpoint}|${SubmissionEndpoint}|g" /home/ubuntu/.bashrc
+              sed -i "s|\${ApiKey}|${ApiKey}|g" /home/ubuntu/.bashrc
+
+              chown ubuntu:ubuntu /home/ubuntu/.bashrc
+
+              echo "✅ Environment configured for kubeafr"
+            fi
+
+            # Create backward compatibility scripts (for existing documentation)
             mkdir -p /home/ubuntu/student-tools
 
-            # Create evaluation request script
             cat > /home/ubuntu/student-tools/request-evaluation.sh <<'EOFEVAL'
             #!/bin/bash
-            set -e
-
-            TASK_ID="$1"
-            if [ -z "$TASK_ID" ]; then
-                echo "Usage: $0 <task-id>"
-                echo "Example: $0 task-01"
-                exit 1
-            fi
-
-            echo "=== Requesting Evaluation for $TASK_ID ==="
-
-            # Load cluster info
-            CLUSTER_INFO="/home/ubuntu/.kube-assessment/cluster-info.json"
-            if [ ! -f "$CLUSTER_INFO" ]; then
-                echo "Error: Cluster info not found"
-                exit 1
-            fi
-
-            NEPTUN_CODE=$(jq -r '.neptun_code' "$CLUSTER_INFO")
-            KUBE_API=$(jq -r '.kube_api' "$CLUSTER_INFO")
-            KUBE_TOKEN=$(jq -r '.kube_token' "$CLUSTER_INFO")
-            PUBLIC_IP=$(jq -r '.public_ip' "$CLUSTER_INFO")
-
-            # Prepare request payload
-            PAYLOAD=$(jq -n \
-              --arg neptun "$NEPTUN_CODE" \
-              --arg task "$TASK_ID" \
-              --arg api "$KUBE_API" \
-              --arg token "$KUBE_TOKEN" \
-              --arg ip "$PUBLIC_IP" \
-              '{
-                student_id: $neptun,
-                task_id: $task,
-                cluster_endpoint: $api,
-                cluster_token: $token,
-                public_ip: $ip
-              }')
-
-            echo "Sending evaluation request..."
+            echo "Note: This script is deprecated. Use 'kubeafr eval <task-id>' instead."
             echo ""
-
-            # Send request to evaluation endpoint
-            RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "EVAL_ENDPOINT_PLACEHOLDER" \
-              -H "Content-Type: application/json" \
-              -H "X-API-Key: API_KEY_PLACEHOLDER" \
-              -d "$PAYLOAD")
-
-            HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
-            BODY=$(echo "$RESPONSE" | grep -v "HTTP_CODE:")
-
-            if [ "$HTTP_CODE" = "200" ]; then
-                echo "$BODY" | jq '.'
-
-                # Save response
-                TIMESTAMP=$(date +%s)
-                echo "$BODY" > "/home/ubuntu/evaluation-results-$TASK_ID-$TIMESTAMP.json"
-                echo ""
-                echo "✅ Evaluation complete!"
-                echo "Results saved to: /home/ubuntu/evaluation-results-$TASK_ID-$TIMESTAMP.json"
-            else
-                echo "❌ Evaluation failed (HTTP $HTTP_CODE)"
-                echo "$BODY"
-            fi
+            /usr/local/bin/kubeafr eval "$@"
             EOFEVAL
 
-            # Replace placeholders with actual values
-            sed -i "s|EVAL_ENDPOINT_PLACEHOLDER|${EvaluationEndpoint}|g" /home/ubuntu/student-tools/request-evaluation.sh
-            sed -i "s|API_KEY_PLACEHOLDER|${ApiKey}|g" /home/ubuntu/student-tools/request-evaluation.sh
-
-            # Create submission script
             cat > /home/ubuntu/student-tools/submit-final.sh <<'EOFSUBMIT'
             #!/bin/bash
-            set -e
-
-            TASK_ID="$1"
-            if [ -z "$TASK_ID" ]; then
-                echo "Usage: $0 <task-id>"
-                echo "Example: $0 task-01"
-                exit 1
-            fi
-
-            echo "=== Submitting Final Results for $TASK_ID ==="
+            echo "Note: This script is deprecated. Use 'kubeafr submit <task-id>' instead."
             echo ""
-            echo "WARNING: This will submit your current solution as final."
-            read -p "Are you sure? (yes/no): " CONFIRM
-
-            if [ "$CONFIRM" != "yes" ]; then
-                echo "Submission cancelled."
-                exit 0
-            fi
-
-            # Load cluster info
-            CLUSTER_INFO="/home/ubuntu/.kube-assessment/cluster-info.json"
-            if [ ! -f "$CLUSTER_INFO" ]; then
-                echo "Error: Cluster info not found"
-                exit 1
-            fi
-
-            NEPTUN_CODE=$(jq -r '.neptun_code' "$CLUSTER_INFO")
-            KUBE_API=$(jq -r '.kube_api' "$CLUSTER_INFO")
-            KUBE_TOKEN=$(jq -r '.kube_token' "$CLUSTER_INFO")
-            PUBLIC_IP=$(jq -r '.public_ip' "$CLUSTER_INFO")
-
-            # First, run evaluation to get eval_token
-            echo "Running final evaluation..."
-            EVAL_PAYLOAD=$(jq -n \
-              --arg neptun "$NEPTUN_CODE" \
-              --arg task "$TASK_ID" \
-              --arg api "$KUBE_API" \
-              --arg token "$KUBE_TOKEN" \
-              --arg ip "$PUBLIC_IP" \
-              '{
-                student_id: $neptun,
-                task_id: $task,
-                cluster_endpoint: $api,
-                cluster_token: $token,
-                public_ip: $ip
-              }')
-
-            EVAL_RESPONSE=$(curl -s -X POST "EVAL_ENDPOINT_PLACEHOLDER" \
-              -H "Content-Type: application/json" \
-              -H "X-API-Key: API_KEY_PLACEHOLDER" \
-              -d "$EVAL_PAYLOAD")
-
-            EVAL_TOKEN=$(echo "$EVAL_RESPONSE" | jq -r '.eval_token // empty')
-
-            if [ -z "$EVAL_TOKEN" ]; then
-                echo "❌ Failed to get evaluation token. Cannot submit."
-                echo "Response: $EVAL_RESPONSE"
-                exit 1
-            fi
-
-            echo "Evaluation token received: $(echo $EVAL_TOKEN | cut -c1-20)..."
-
-            # Prepare submission payload
-            SUBMIT_PAYLOAD=$(jq -n \
-              --arg neptun "$NEPTUN_CODE" \
-              --arg task "$TASK_ID" \
-              --arg eval_token "$EVAL_TOKEN" \
-              '{
-                student_id: $neptun,
-                task_id: $task,
-                eval_token: $eval_token
-              }')
-
-            # Send submission request
-            echo "Submitting final results..."
-            SUBMIT_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "SUBMIT_ENDPOINT_PLACEHOLDER" \
-              -H "Content-Type: application/json" \
-              -H "X-API-Key: API_KEY_PLACEHOLDER" \
-              -d "$SUBMIT_PAYLOAD")
-
-            HTTP_CODE=$(echo "$SUBMIT_RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
-            BODY=$(echo "$SUBMIT_RESPONSE" | grep -v "HTTP_CODE:")
-
-            echo ""
-            if [ "$HTTP_CODE" = "200" ]; then
-                echo "$BODY" | jq '.'
-                echo ""
-                echo "✅ Submission successful!"
-                echo "Your results have been submitted to the instructor."
-            else
-                echo "❌ Submission failed (HTTP $HTTP_CODE)"
-                echo "$BODY"
-            fi
+            /usr/local/bin/kubeafr submit "$@"
             EOFSUBMIT
-
-            # Replace placeholders with actual values
-            sed -i "s|EVAL_ENDPOINT_PLACEHOLDER|${EvaluationEndpoint}|g" /home/ubuntu/student-tools/submit-final.sh
-            sed -i "s|SUBMIT_ENDPOINT_PLACEHOLDER|${SubmissionEndpoint}|g" /home/ubuntu/student-tools/submit-final.sh
-            sed -i "s|API_KEY_PLACEHOLDER|${ApiKey}|g" /home/ubuntu/student-tools/submit-final.sh
 
             chmod +x /home/ubuntu/student-tools/*.sh
             chown -R ubuntu:ubuntu /home/ubuntu/student-tools
@@ -692,27 +838,34 @@ Resources:
             📁 Workspace Location:
                ~/k8s-workspace/tasks/${TaskSelection}/
 
-            🛠️  Available Tools:
-               ~/student-tools/request-evaluation.sh <task-id>
-               ~/student-tools/submit-final.sh <task-id>
+            🛠️  kubeafr CLI Commands:
+               kubeafr eval <task-id>          # Request evaluation
+               kubeafr submit <task-id>        # Submit final solution
+               kubeafr status                  # Check environment
+               kubeafr tasks                   # List available tasks
+
+            💡 Shortcuts (aliases):
+               eval ${TaskSelection}              # Quick evaluation
+               submit ${TaskSelection}            # Quick submission
 
             📋 Quick Start:
                1. cd ~/k8s-workspace/tasks/${TaskSelection}
                2. cat README.md
                3. Create your solution YAML files
                4. kubectl apply -f your-solution.yaml
-               5. ~/student-tools/request-evaluation.sh ${TaskSelection}
+               5. kubeafr eval ${TaskSelection}
                6. Review results and iterate
-               7. ~/student-tools/submit-final.sh ${TaskSelection}
+               7. kubeafr submit ${TaskSelection}
 
             ⏰ Environment Lifetime: 4 hours
                Save your work regularly!
 
             🔍 Useful Commands:
-               kubectl get all                    # View all resources
-               kubectl describe <resource>        # Detailed info
-               kubectl logs <pod-name>            # View logs
-               kubectl get policyreport -A        # Check Kyverno results
+               kubectl get all                 # View all resources
+               kubectl describe <resource>     # Detailed info
+               kubectl logs <pod-name>         # View logs
+               kubeafr help                    # Show all commands
+               kubeafr version                 # CLI version
 
             Good luck with your assessment!
             EOFWELCOME
@@ -754,11 +907,11 @@ Outputs:
 
   EvaluationCommand:
     Description: Command to request evaluation
-    Value: !Sub '~/student-tools/request-evaluation.sh ${TaskSelection}'
+    Value: !Sub 'kubeafr eval ${TaskSelection}'
 
   SubmissionCommand:
     Description: Command to submit final results
-    Value: !Sub '~/student-tools/submit-final.sh ${TaskSelection}'
+    Value: !Sub 'kubeafr submit ${TaskSelection}'
 
   EnvironmentLifetime:
     Description: Auto-shutdown time
